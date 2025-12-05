@@ -1,0 +1,6 @@
+.DS_store
+*.dta
+*.csv
+*.rds
+*.xlsx
+
