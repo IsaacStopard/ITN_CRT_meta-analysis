@@ -288,7 +288,7 @@ cols_net <- c("blue", "aquamarine", "darkgreen")
 
 year_prev_plot <- ggplot(data = u_li_all) +
   geom_pointrange(data = COMBO_stan, aes(x = time/12, y = prev, ymin = prev_lower, ymax = prev_upper, fill = net, col = net),
-                  shape = 1, alpha = 0.5, size = 0.25, inherit.aes = FALSE) +
+                  shape = 1, alpha = 0.5, size = 0.25, inherit.aes = FALSE, position = position_jitter(width = 0.075)) +
   geom_ribbon(aes(x = years, ymin = l_p, ymax = u_p, y = m_p,
                   group = interaction(study_place, net), fill = net),
               alpha = 0.1) +
@@ -307,8 +307,8 @@ year_prev_plot <- ggplot(data = u_li_all) +
              nrow = 1) +
   scale_linetype_manual(name = "", values = c(1, 2)) +
   ylab("Malaria prevalence") + xlab("Years post trial net distribution") +
-  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2), labels = scales::percent_format()) +
-  scale_x_continuous(limits = c(-0.25, 3), breaks = 0:3) +
+  scale_y_continuous(limits = c(-0.01, 1.01), breaks = seq(0, 1, 0.2), labels = scales::percent_format()) +
+  scale_x_continuous(limits = c(-0.25, 3.1), breaks = 0:3) +
   scale_colour_manual(values = cols_net, name = "ITN") +
   scale_fill_manual(values = cols_net, name = "ITN")
 

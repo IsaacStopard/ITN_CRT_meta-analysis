@@ -199,329 +199,104 @@ pred_mean = process_gq(pred_data = pred_data_mean_prev,
 pred_diff = process_gq(pred_data = pred_data_diff_prev,
                        u_gq_in = u_gq_diff_prev)
 
-saveRDS(list("pred_mean" = pred_mean,
-             "pred_diff" = pred_diff),
-        file = paste0(model, "_pred.rds"))
+##################################################
+##### mean odds ratios between 0 and 3 years #####
+##################################################
 
-#
-# filter_gq <- function(u_gq_m, plot_name, data_limits){
-#
-#   # subsetting so for each study the mean values are the same
-#   if(plot_name != "m_plot" && plot_name != "mn_plot"){
-#       u_gq_m <- lapply(1:nrow(data_limits), function(i, data_limits, u_gq_m){
-#         x <- round(data_limits[i, "mean_BL_prev"], digit = 3)
-#         y <- round(data_limits[i, "mean_BL_net_use"], digit = 3)
-#         s <- data_limits[i, "i"]
-#         return(filter(u_gq_m, round(mean_prev, digits = 3) == x &
-#                         round(mean_net, digits = 3) == y &
-#                         i == s)
-#                )},
-#         data_limits = data_limits, u_gq_m = u_gq_m) |>
-#       bind_rows()
-#
-#       u_gq_m <- lapply(1:nrow(data_limits), function(i, data_limits, u_gq_m){
-#         a <- round(data_limits[i, "min_prev"], digit = 3)
-#         b <- round(data_limits[i, "min_net"], digit = 3)
-#         c <- round(data_limits[i, "max_prev"], digit = 3)
-#         d <- round(data_limits[i, "max_net"], digit = 3)
-#         s <- data_limits[i, "i"]
-#         return(filter(u_gq_m,
-#                       round(start_prev, digits = 3) >= a &
-#                         round(start_prev, digits = 3) <= c &
-#                         round(start_net, digits = 3) >= b &
-#                         round(start_net, digits = 3) <= d &
-#                         i == s)
-#         )},
-#         data_limits = data_limits, u_gq_m = u_gq_m) |>
-#         bind_rows()
-#   }
-# # predictions that vary the mean values
-#   if(plot_name == "m_plot" | plot_name == "mn_plot"){
-#     u_gq_m <- u_gq_m |> filter(round(start_prev, digits = 3) >= round(min(data_limits$mean_BL_prev), digits = 3) &
-#                                  round(start_prev, digits = 3) <= round(max(data_limits$mean_BL_prev), digits = 3) &
-#                                round(start_net, digits = 3) >= round(min(data_limits$mean_BL_net_use), digits = 3) &
-#                                  round(start_net, digits = 3) <= round(max(data_limits$mean_BL_net_use), digits = 3)
-#                                  )
-#     u_gq_m <- if(plot_name == "m_plot"){
-#       lapply(1:nrow(data_limits),
-#              function(i, data_limits, u_gq_m){
-#                y <- round(data_limits[i, "mean_BL_net_use"], digit = 3)
-#                s <- data_limits[i, "i"]
-#       return(
-#         filter(u_gq_m,
-#           round(mean_net, digits = 3) == y &
-#                       i == s)
-#                )
-#              },
-#       data_limits = data_limits, u_gq_m = u_gq_m) |>
-#       bind_rows()
-#
-#     } else{
-#       u_gq_m <- lapply(1:nrow(data_limits), function(i, data_limits, u_gq_m){
-#         x <- round(data_limits[i, "mean_BL_prev"], digit = 3)
-#         s <- data_limits[i, "i"]
-#         return(filter(u_gq_m, round(mean_prev, digits = 3) == x &
-#                         i == s)
-#         )},
-#         data_limits = data_limits, u_gq_m = u_gq_m) |>
-#         bind_rows()
-#     }
-#     }
-#
-#   return(u_gq_m)
-# }
-#
-# get_predictions <- function(model,
-#                             u_gq,
-#                             years,
-#                             mean_prev,
-#                             diff_prev,
-#                             mean_net,
-#                             diff_net,
-#                             mean_prev_pooled,
-#                             mean_net_pooled,
-#                             data_in_full, stan_model, fit_full,
-#                             plot_name, data_limits){
-#
-#   bp_bn_gq <- expand.grid("mean_prev" = mean_prev,
-#                           "diff_prev" = diff_prev,
-#                           "years" = years,
-#                           "mean_net" = mean_net,
-#                           "diff_net" = diff_net) |>
-#           mutate(start_prev = diff_prev + mean_prev,
-#                  start_net = diff_net + mean_net,
-#                  mean_prev_pooled = mean_prev_pooled,
-#                  diff_prev_pooled = diff_prev,
-#                  mean_net_pooled = mean_net_pooled,
-#                  diff_net_pooled = diff_net,
-#                  start_prev_pooled = diff_prev_pooled + mean_prev_pooled,
-#                  start_net_pooled = diff_net_pooled + mean_net_pooled) |>
-#           filter(start_prev <= 1 & start_prev >= 0 &
-#                  start_net <= 1 & start_net >= 0 &
-#                  start_prev_pooled <= 1 & start_prev_pooled >= 0 &
-#                  start_net_pooled <= 1 & start_net_pooled >= 0)
-#
-#   u_gq_m <- u_gq[rep(1:nrow(u_gq), nrow(bp_bn_gq)),] |>
-#           dplyr::mutate(mean_prev = rep(bp_bn_gq[, "mean_prev"], each = nrow(u_gq)),
-#                   start_prev = rep(bp_bn_gq[, "start_prev"], each = nrow(u_gq)),
-#                   start_net = rep(bp_bn_gq[, "start_net"], each = nrow(u_gq)),
-#                   diff_prev = rep(bp_bn_gq[, "diff_prev"], each = nrow(u_gq)),
-#                   mean_net = rep(bp_bn_gq[, "mean_net"], each = nrow(u_gq)),
-#                   diff_net = rep(bp_bn_gq[, "diff_net"], each = nrow(u_gq)),
-#                   years = rep(bp_bn_gq[, "years"], each = nrow(u_gq)),
-#                   mean_prev_pooled = rep(bp_bn_gq[, "mean_prev_pooled"], each = nrow(u_gq)),
-#                   diff_prev_pooled = rep(bp_bn_gq[, "diff_prev_pooled"], each = nrow(u_gq)),
-#                   mean_net_pooled = rep(bp_bn_gq[, "mean_net_pooled"], each = nrow(u_gq)),
-#                   diff_net_pooled = rep(bp_bn_gq[, "diff_net_pooled"], each = nrow(u_gq)))
-#
-#   u_gq_m <- filter_gq(u_gq_m = u_gq_m, plot_name = plot_name, data_limits = data_limits) |>
-#         mutate(
-#           ij = i,
-#           rn = dplyr::row_number()
-#           )
-#
-#   pred_data <- data_in_full |>
-#     purrr::list_assign(gq = 1,
-#                        N_gq = nrow(u_gq_m),
-#                        N_ij_gq = length(unique(u_gq_m$ij)), # the same random effect for all the clusters in each study
-#                        N_ij_unq_gq = length(unique(u_gq_m$i)),
-#                        pmat_ij_gq = fastDummies::dummy_cols(u_gq_m$ij)[,-1] |> as.matrix(),
-#                        r_id_gq = seq(1, length(unique(u_gq_m$i))),
-#                        pmat_i_gq = fastDummies::dummy_cols(u_gq_m$i)[,-1] |> as.matrix(),
-#                        pmat_l_gq = fastDummies::dummy_cols(u_gq_m$l)[,-c(1, 2)] |> as.matrix(),
-#                        pmat_li_gq = fastDummies::dummy_cols(u_gq_m$li)[,-c(1, 2)] |> as.matrix(),
-#                        pmat_it_gq = fastDummies::dummy_cols(u_gq_m$it)[,-1] |> as.matrix(),
-#
-#                        pmat_i_pooled_gq = matrix(0, nrow = nrow(u_gq_m), ncol = length(unique(u_gq_m$i))),
-#                        pmat_li_pooled_gq = matrix(0, nrow = nrow(u_gq_m), ncol = length(unique(u_gq_m$li)) - 1),
-#                        pmat_it_pooled_gq = matrix(0, nrow = nrow(u_gq_m), ncol = length(unique(u_gq_m$it))),
-#
-#                        ij_train_gq = rep(0, length(unique(u_gq_m$ij))),
-#                        ij_unq_train_gq = rep(1, length(unique(u_gq_m$i))),
-#                        years_gq = u_gq_m$years,
-#                        m_prob_s_gq = u_gq_m$mean_prev,
-#                        d_prob_s_gq = u_gq_m$diff_prev,
-#                        m_net_s_gq = u_gq_m$mean_net,
-#                        d_net_s_gq = u_gq_m$diff_net,
-#                        m_prob_s_gq_pooled = u_gq_m$mean_prev_pooled,
-#                        d_prob_s_gq_pooled = u_gq_m$diff_prev_pooled,
-#                        m_net_s_gq_pooled = u_gq_m$mean_net_pooled,
-#                        d_net_s_gq_pooled = u_gq_m$diff_net_pooled)
-#
-#   model_predict <- rstan::gqs(stan_model,
-#                               draws = as.matrix(fit_full),
-#                               data = pred_data,
-#                               seed = 123)
-#
-#   #inv_log_all <- rstan::extract(model_predict, "inv_logit_posterior")$inv_logit_posterior
-#
-#   #inv_log_all_pooled <- rstan::extract(model_predict, "inv_logit_posterior_pooled")$inv_logit_posterior_pooled
-#
-#   #inv_log <- inv_log_all |> apply(2, quantile, probs = c(lower, 0.5, upper)) |> t() |> cbind(u_gq_m) |> dplyr::rename(l_p = 1, m_p = 2, u_p = 3)
-#
-#   #inv_log_pooled <- inv_log_all_pooled |> apply(2, quantile, probs = c(lower, 0.5, upper)) |> t() |> cbind(u_gq_m) |> dplyr::rename(l_p_pooled = 1, m_p_pooled = 2, u_p_pooled = 3)
-#
-#   o_r <- rstan::extract(model_predict, "o_r")$o_r |> apply(2, quantile, probs = c(lower, 0.5, upper)) |> t() |> cbind(u_gq_m) |> dplyr::rename(l_or = 1, m_or = 2, u_or = 3)
-#
-#   o_r_pooled <- rstan::extract(model_predict, "o_r_pooled")$o_r_pooled |> apply(2, quantile, probs = c(lower, 0.5, upper)) |> t() |> cbind(u_gq_m) |> dplyr::rename(l_or_pooled = 1, m_or_pooled = 2, u_or_pooled = 3)
-#
-#   out <- o_r |> left_join(o_r_pooled) #inv_log |> left_join()|> left_join(inv_log_pooled)
-#
-#   rm(list = c("model_predict"))
-#
-#   #pred_data_p_only <- pred_data
-#   #pred_data_p_only$pmat_l_gq[pred_data_p_only$pmat_l_gq == 1] <- 0
-#   #pred_data_p_only$pmat_li_gq[pred_data_p_only$pmat_li_gq == 1] <- 0
-#
-#   #model_predict_p_only <- rstan::gqs(stan_model,
-#   #                                   draws = as.matrix(fit_full),
-#   #                                   data = pred_data_p_only,
-#   #                                   seed = 123)
-#
-#   #inv_log_p <- rstan::extract(model_predict_p_only, "inv_logit_posterior")$inv_logit_posterior
-#
-#   #inv_log_p_pooled <- rstan::extract(model_predict_p_only, "inv_logit_posterior_pooled")$inv_logit_posterior_pooled
-#
-#   #a_eff <- (inv_log_p - inv_log_all) |> apply(2, quantile, probs = c(lower, 0.5, upper)) |> t() |> cbind(u_gq_m) |> dplyr::rename(l_e_a = 1, m_e_a = 2, u_e_a = 3)
-#   #a_eff_pooled <- (inv_log_p_pooled - inv_log_all_pooled) |> apply(2, quantile, probs = c(lower, 0.5, upper)) |> t() |> cbind(u_gq_m) |> dplyr::rename(l_e_a_pooled = 1, m_e_a_pooled = 2, u_e_a_pooled = 3)
-#   #r_eff <- (1 - (inv_log_all / inv_log_p)) |> apply(2, quantile, probs = c(lower, 0.5, upper)) |> t() |> cbind(u_gq_m) |> dplyr::rename(l_e = 1, m_e = 2, u_e = 3)
-#   #r_eff_pooled <- (1 - (inv_log_all_pooled / inv_log_p_pooled)) |> apply(2, quantile, probs = c(lower, 0.5, upper)) |> t() |> cbind(u_gq_m) |> dplyr::rename(l_e_pooled = 1, m_e_pooled = 2, u_e_pooled = 3)
-#
-#   #rm(list = c("model_predict_p_only"))
-#
-#   #out <- left_join(out, r_eff) |> left_join(a_eff) |> left_join(a_eff_pooled) |> left_join(r_eff_pooled)
-#
-#   return(out |> mutate(plot_name = plot_name))
-# }
-#
-# # different combinations of predictors
-# # so each plot is done with the same mean BL prev and net use
-# ucs <- unique(COMBO_stan[, c("cluster", "study", "i", "BL_prev_num", "BL_prev_denom", "net_use_num", "net_use_denom")]) |>
-#   mutate(BL_prev = BL_prev_num/BL_prev_denom,
-#          BL_net_use = net_use_num/net_use_denom)
-#
-# ucs <- ucs |> left_join(ucs |> group_by(study) |>
-#               summarise(mean_BL_prev = mean(BL_prev),
-#                         mean_BL_net_use = mean(BL_net_use))) |>
-#   mutate(diff_BL_prev = BL_prev - mean_BL_prev,
-#          diff_BL_net_use = BL_net_use - mean_BL_net_use)
-#
-# mean_prev_pooled <- mean(ucs[,"BL_prev"])
-# mean_net_pooled <- mean(ucs[,"BL_net_use"])
-#
-# data_limits <- COMBO_stan |> group_by(study, i) |> summarise(min_prev = min(BL_prev), max_prev = max(BL_prev), min_net = min(net_use), max_net = max(net_use)) |>
-#   left_join(unique(ucs[,c("i", "mean_BL_prev", "mean_BL_net_use")])) |> as.data.frame()
-#
-# # for time plots
-# years_t <- c(seq(0.3, 3, 0.3), unique(COMBO_stan$time/12)) |> unique() |> sort()
-# mean_prev_t <- unique(ucs$mean_BL_prev)
-# diff_prev_t <- c(0)
-# mean_net_t <- unique(ucs$mean_BL_net_use)
-# diff_net_t <- diff_prev_t
-#
-# pred_t <- get_predictions(model = model,
-#                           u_gq = u_gq,
-#                           years = years_t,
-#                           mean_prev = mean_prev_t,
-#                           diff_prev = diff_prev_t,
-#                           mean_net = mean_net_t,
-#                           diff_net = diff_net_t,
-#                           mean_prev_pooled = mean_prev_pooled,
-#                           mean_net_pooled = mean_net_pooled,
-#                           data_in_full = data_in_full,
-#                           stan_model = stan_model, fit_full = fit_full,
-#                           plot_name = "t_plot",
-#                           data_limits = data_limits)
-#
-# # for baseline prev plots
-# years_m <- c(1)
-# mean_prev_m <- seq(0, 1, 0.025)
-# diff_prev_m <- 0
-# mean_net_m <- mean_net_t
-# diff_net_m <- 0
-#
-# pred_m <- get_predictions(model = model, u_gq = u_gq,
-#                   years = years_m,
-#                   mean_prev = mean_prev_m,
-#                   diff_prev = diff_prev_m,
-#                   mean_net = mean_net_m,
-#                   diff_net = diff_net_m,
-#                   mean_prev_pooled = mean_prev_pooled,
-#                   mean_net_pooled = mean_net_pooled,
-#                   data_in_full = data_in_full,
-#                   stan_model = stan_model, fit_full = fit_full,
-#                   plot_name = "m_plot",
-#                   data_limits = data_limits)
-#
-# years_p <- c(1)
-# mean_prev_p <- mean_prev_t
-# diff_prev_p <- seq(-1, 1, 0.025)
-# mean_net_p <- mean_net_t
-# diff_net_p <- 0
-#
-# pred_p <- get_predictions(model = model,
-#                           u_gq = u_gq,
-#                           years = years_p,
-#                           mean_prev = mean_prev_p,
-#                           diff_prev = diff_prev_p,
-#                           mean_net = mean_net_p,
-#                           diff_net = diff_net_p,
-#                           mean_prev_pooled = mean_prev_pooled,
-#                           mean_net_pooled = mean_net_pooled,
-#                           data_in_full = data_in_full,
-#                           stan_model = stan_model, fit_full = fit_full,
-#                           plot_name = "p_plot",
-#                           data_limits = data_limits)
-#
-# # for mean baseline net use plots
-# years_mn <- years_p
-# mean_prev_mn <- mean_prev_t
-# diff_prev_mn <- 0
-# mean_net_mn <- seq(0, 1.0, 0.025)
-# diff_net_mn <- 0
-#
-# pred_mn <- get_predictions(model = model, u_gq = u_gq,
-#                   years = years_mn,
-#                   mean_prev = mean_prev_mn,
-#                   diff_prev = diff_prev_mn,
-#                   mean_net = mean_net_mn,
-#                   diff_net = diff_net_mn,
-#                   mean_prev_pooled = mean_prev_pooled,
-#                   mean_net_pooled = mean_net_pooled,
-#                   data_in_full = data_in_full,
-#                   stan_model = stan_model,
-#                   fit_full = fit_full,
-#                   plot_name = "mn_plot",
-#                   data_limits = data_limits)
-#
-# # for difference in baseline net use plots
-# years_dn <- years_p
-# mean_prev_dn <- mean_prev_t
-# diff_prev_dn <- 0
-# mean_net_dn <- mean_net_t
-# diff_net_dn <- seq(-1, 1, 0.025)
-#
-# pred_dn <- get_predictions(model = model, u_gq = u_gq,
-#                   years = years_dn,
-#                   mean_prev = mean_prev_dn,
-#                   diff_prev = diff_prev_dn,
-#                   mean_net = mean_net_dn,
-#                   diff_net = diff_net_dn,
-#                   mean_prev_pooled = mean_prev_pooled,
-#                   mean_net_pooled = mean_net_pooled,
-#                   data_in_full = data_in_full,
-#                   stan_model = stan_model,
-#                   fit_full = fit_full,
-#                   plot_name = "dn_plot",
-#                   data_limits = data_limits)
-#
-#
-# saveRDS(list("pred_t" = pred_t,
-#              "pred_m" = pred_m,
-#              "pred_p" = pred_p,
-#              "pred_mn" = pred_mn,
-#              "pred_dn" = pred_dn,
-#              "data_limits" = data_limits),
-#         file = paste0(model, "_pred.rds"))
-#
-#
+u_gq_mean_prev_or <- u_gq_mean_prev |> subset(years == 1) |>
+  mutate(l_in = l - 1,
+         li_in = case_when(li <= 5 ~ li - 1,
+                           li == 7 ~ 5),
+         mean_or_3_l = NA, mean_or_3_m = NA, mean_or_3_u = NA,
+         pooled_mean_or_3_l = NA, pooled_mean_or_3_m = NA, pooled_mean_or_3_u = NA,
+         mean_prev_3_l = NA, mean_prev_3_m = NA, mean_prev_3_u = NA,
+         mean_eff_3_l = NA, mean_eff_3_m = NA, mean_eff_3_u = NA) |> select(-years)
+
+u_gq_diff_prev_or <- u_gq_diff_prev |> subset(years == 1) |>
+  mutate(l_in = l - 1, li_in = case_when(li <= 5 ~ li - 1,
+                                         li == 7 ~ 5),
+         mean_or_3_l = NA, mean_or_3_m = NA, mean_or_3_u = NA,
+         pooled_mean_or_3_l = NA, pooled_mean_or_3_m = NA, pooled_mean_or_3_u = NA,
+         mean_prev_3_l = NA, mean_prev_3_m = NA, mean_prev_3_u = NA,
+         mean_eff_3_l = NA, mean_eff_3_m = NA, mean_eff_3_u = NA) |> select(-years)
+
+calc_or_mean_prev <- function(u_gq_in){
+
+  alpha <- rstan::extract(fit_full, "alpha")[[1]]
+  kappa <- rstan::extract(fit_full, "kappa")[[1]]
+  gamma <- rstan::extract(fit_full, "gamma")[[1]]
+  delta <- rstan::extract(fit_full, "alpha")[[1]]
+  omega <- rstan::extract(fit_full, "omega")[[1]]
+
+  sigma_e_r <- rstan::extract(fit_full, "sigma_e_r_train")[[1]]
+
+  e_ij_all <- matrix(rnorm(iter/2*4 * length(unique(u_gq_in$i)), mean = 0, sd = sigma_e_r), nrow = nrow(sigma_e_r))
+
+  for(i in 1:nrow(u_gq_in)){
+
+    e_ij <- e_ij_all[, u_gq_in[i,"i"]]
+
+    alpha_i <- rstan::extract(fit_full, "alpha_i")[[1]][, u_gq_in[i, "i"]]
+
+    if(u_gq_in[i, "l_in"] == 0){
+      theta_l <- kappa_l <- omega_l <- delta_l <- rep(0, iter/2*4)
+    } else{
+      theta_l <- rstan::extract(fit_full, "theta_l")[[1]][, u_gq_in[i, "l_in"]]
+      kappa_l <- rstan::extract(fit_full, "kappa_l")[[1]][, u_gq_in[i, "l_in"]]
+      omega_l <- rstan::extract(fit_full, "omega_l")[[1]][, u_gq_in[i, "l_in"]]
+      delta_l <- rstan::extract(fit_full, "delta_l")[[1]][, u_gq_in[i, "l_in"]]
+    }
+
+    theta_li <- if(u_gq_in[i, "l_in"] == 0){rep(0, iter/2*4)} else{rstan::extract(fit_full, "theta_li")[[1]][, u_gq_in[i, "li_in"]]}
+
+    # odds ratios
+    log_or_3 <- (theta_l * 3) + (theta_li * 3) + ((kappa_l * 3^2)/2) + (omega_l * u_gq_in[i, "mean_prev"] * 3) + (delta_l * u_gq_in[i, "diff_prev"] * 3)
+    or_3 <- exp(log_or_3)
+    mean_or_3 <- quantile(log_or_3, probs = c(lower, 0.5, upper))
+
+    log_or_3_p <-  (theta_l * 3) + ((kappa_l * 3^2)/2) + (omega_l * u_gq_in[i, "mean_prev_pooled"] * 3) + (delta_l * u_gq_in[i, "diff_prev_pooled"] * 3)
+    or_3_p <- exp(log_or_3_p)
+    mean_or_3_p <- quantile(log_or_3_p, probs = c(lower, 0.5, 0.975))
+
+    D <- kappa + kappa_l + delta * u_gq_in[i, "diff_prev"]
+    N <- alpha + alpha_i + theta_l + theta_li + omega * u_gq_in[i, "mean_prev"] + gamma * u_gq_in[i, "diff_prev"] +
+      omega_l * u_gq_in[i, "mean_prev"] + delta_l * u_gq_in[i, "diff_prev"] + e_ij
+    mean_prev <- (log(exp(D * 3 + N) + 1) - log(exp(N) + 1)) / (D * 3)
+
+    mean_prev_3 <- quantile(mean_prev, probs = c(lower, 0.5, upper))
+
+    D_c <- kappa + delta * u_gq_in[i, "diff_prev"]
+    N_c <- alpha + alpha_i + omega * u_gq_in[i, "mean_prev"] + gamma * u_gq_in[i, "diff_prev"] + e_ij
+    mean_prev_c <- (log(exp(D_c * 3 + N_c) + 1) - log(exp(N_c) + 1)) / (D_c * 3)
+
+    eff_3 <- (1 - (or_3 / (1 - mean_prev_c + (mean_prev_c * or_3)))) * 100
+    mean_eff_3 <- quantile(eff_3, probs = c(lower, 0.5, upper))
+
+    u_gq_in[i, "mean_or_3_l"] <- mean_or_3[1]
+    u_gq_in[i, "mean_or_3_m"] <- mean_or_3[2]
+    u_gq_in[i, "mean_or_3_u"] <- mean_or_3[3]
+
+    u_gq_in[i, "pooled_mean_or_3_l"] <- mean_or_3_p[1]
+    u_gq_in[i, "pooled_mean_or_3_m"] <- mean_or_3_p[2]
+    u_gq_in[i, "pooled_mean_or_3_u"] <- mean_or_3_p[3]
+
+    u_gq_in[i, "mean_prev_3_l"] <- mean_prev_3[1]
+    u_gq_in[i, "mean_prev_3_m"] <- mean_prev_3[2]
+    u_gq_in[i, "mean_prev_3_u"] <- mean_prev_3[3]
+
+    u_gq_in[i, "mean_eff_3_l"] <- mean_eff_3[1]
+    u_gq_in[i, "mean_eff_3_m"] <- mean_eff_3[2]
+    u_gq_in[i, "mean_eff_3_u"] <- mean_eff_3[3]
+  }
+
+  return(u_gq_in)
+}
+
+u_gq_mean_prev_or_3 <- calc_or_mean_prev(u_gq_mean_prev_or)
+u_gq_diff_prev_or_3 <- calc_or_mean_prev(u_gq_diff_prev_or)
+
+saveRDS(list("pred_mean" = pred_mean,
+             "pred_diff" = pred_diff,
+             "or_mean_3y_mean" = u_gq_mean_prev_or_3,
+             "or_mean_3y_diff" = u_gq_diff_prev_or_3),
+        file = paste0(model, "_pred.rds"))
