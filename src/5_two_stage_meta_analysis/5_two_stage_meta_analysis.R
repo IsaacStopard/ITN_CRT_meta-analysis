@@ -68,8 +68,9 @@ rma_fit_pp <- rma(yi = subset(effect_data, net == "Pyrethroid-pyrrole")$yi,
 
 
 pdf(file = "two_stage_forest_plot_pbo.pdf",
-  width = 15, height = 10)
+  width = 10, height = 5)
 forest.rma(rma_fit,
+           order = subset(effect_data, net == "Pyrethroid-PBO")$study[c(1, 3, 2)],
            ilab = cbind(data_plot_pbo$pos, data_plot_pbo$neg, subset(data_plot_pyr, study != "Benin (2020)")$pos, subset(data_plot_pyr, study != "Benin (2020)")$neg),
            ilab.lab = c("+", "-", "+", "-"))
 text(c(-2.75, -1.95), rma_fit$k+2.5, c("Pyrethroid-PBO", "Pyrethroid-only"), cex=0.75, font=2)
@@ -85,8 +86,9 @@ text(-0.75, 5.5, pos=4, cex=0.75, bquote(
 dev.off()
 
 pdf(file = "two_stage_forest_plot_pp.pdf",
-    width = 15, height = 10)
+    width = 10, height = 5)
 forest.rma(rma_fit_pp,
+           order = subset(effect_data, net == "Pyrethroid-pyrrole")$study,
            ilab = cbind(data_plot_pp$pos, data_plot_pp$neg, subset(data_plot_pyr, study %in% c("Tanzania (2019)", "Benin (2020)"))$pos,
                         subset(data_plot_pyr, study %in% c("Tanzania (2019)", "Benin (2020)"))$neg),
            ilab.lab = c("+", "-", "+", "-"))

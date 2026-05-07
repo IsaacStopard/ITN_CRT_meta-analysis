@@ -1,7 +1,5 @@
 library(tidyverse); library(rio); library(skimr); library(GGally); library(cowplot); library(ggsignif); library(patchwork)
 
-#setwd("/Volumes/malaria/Isaac/trials")
-
 orderly2::orderly_dependency("1_data_cleaning", "latest()",
                              c("stan_data.rds"))
 
@@ -69,7 +67,7 @@ pairs_theme <-
         panel.grid.minor = element_blank())
 
 
-pairs_plot_month <- function(months){
+pairs_plot_month <- function(months, supp = TRUE){
 
   df <- subset(pairs_data, time_6m == months)
 
@@ -83,8 +81,8 @@ lower_plots_custom <- function(data,
 
 
   ggplot(...) +
-    geom_pointrange(data = data, mapping = mapping, alpha = 0.5, size = 0.15, linewidth = 0.025) +
-    geom_errorbarh(data = data, mapping = mapping_eb, linewidth = 0.025) +
+    geom_pointrange(data = data, mapping = mapping, alpha = 0.5, size = 0.25, linewidth = 0.1) +
+    geom_errorbarh(data = data, mapping = mapping_eb, linewidth = 0.1, alpha = 0.5) +
     scale_y_continuous(labels=scales::percent, limits = c(0, 1), breaks = seq(0, 1, 0.25)) +
     scale_x_continuous(labels=scales::percent, limits = c(0, 1), breaks = seq(0, 1, 0.25)) +
     pairs_theme +
@@ -98,10 +96,8 @@ lower_plots_custom <- function(data,
                 formula = formula,
                 se = FALSE,
                 linewidth = 0.75) +
-    theme(legend.position = "none", text = element_text(size = 14))
+    theme(text = element_text(size = 17))
 }
-
-
 
 bp_nu_plot <- lower_plots_custom(data = df,
                    mapping = aes(x = BL_prev, xmin = BL_prev_l, xmax = BL_prev_u,
@@ -116,7 +112,7 @@ bp_nu_plot <- lower_plots_custom(data = df,
                    formula = y ~ x
                    ) +
   xlab("Baseline prevalence") + ylab("Baseline net use") +
-  theme(text = element_text(size = 14))
+  theme(text = element_text(size = 17))
 
 bp_tnu_plot <- lower_plots_custom(data = df,
                                  mapping = aes(x = BL_prev, xmin = BL_prev_l, xmax = BL_prev_u,
@@ -131,7 +127,7 @@ bp_tnu_plot <- lower_plots_custom(data = df,
                                  formula = y ~ x
 ) +
   xlab("Baseline prevalence") + ylab("Trial net use") +
-  theme(text = element_text(size = 14))
+  theme(text = element_text(size = 17))
 
 nu_tnu_plot <- lower_plots_custom(data = df,
                                   mapping = aes(x = net_use, xmin = net_use_l, xmax = net_use_u,
@@ -147,60 +143,23 @@ nu_tnu_plot <- lower_plots_custom(data = df,
                                   formula = y ~ x
 ) +
   xlab("Baseline net use") + ylab("Trial net use") +
-  theme(text = element_text(size = 14))
+  theme(text = element_text(size = 17))
 
-diag_plots <- function(data,
-                       mapping,
-                       ...) {
-
-  ggplot(data = data,
-         mapping = mapping,
-         ...) +
-    geom_histogram(binwidth = 0.05, boundary = 0, closed = "left", ..., alpha = 0.85) +
-    scale_x_continuous(labels=scales::percent, limits = c(0, 1), breaks = seq(0, 1, 0.25)) +
-    pairs_theme +
-    theme(axis.text.y = element_blank(),
-          axis.ticks.y = element_blank(),
-          text = element_text(size = 14)) +
-    scale_colour_manual(values = c("Tanzania (2015)" = cols[1], "Uganda (2017)" = cols[2], "Tanzania (2019)" = cols[3], "Benin (2020)" = cols[4]), name = "")  +
-    scale_fill_manual(values = c("Tanzania (2015)" = cols[1], "Uganda (2017)" = cols[2], "Tanzania (2019)" = cols[3], "Benin (2020)" = cols[4]), name = "")
-}
-
-bnu_hist_plot <- diag_plots(data = df,
-           mapping = aes(x = net_use, col = study_place, fill = study_place, shape = study_place, group = study_place
-           )) +
-  xlab("Baseline net use") +
-  theme(axis.title.y = element_blank())
-
-tnu_hist_plot <- diag_plots(data = df,
-                            mapping = aes(x = tr_net_use, col = study_place, fill = study_place, shape = study_place, group = study_place
-                            )) +
-  xlab("Trial net use") +
-  theme(axis.title.y = element_blank())
-
-bp_hist_plot <- diag_plots(data = df,
-                            mapping = aes(x = BL_prev, col = study_place, fill = study_place, shape = study_place, group = study_place
-                            )) +
-  xlab("Baseline prevalence") +
-  ylab("Baseline prevalence")
-
-out <- if(months != "13-18 m"){
-  (bp_hist_plot + theme(legend.position = "none")) + plot_spacer() + plot_spacer() + (bp_nu_plot + theme(legend.position = "none")) +
-    (bnu_hist_plot + theme(legend.position = "none")) + plot_spacer() +
-    (bp_tnu_plot + theme(legend.position = "none")) + (nu_tnu_plot + theme(legend.position = "none")) + (tnu_hist_plot + theme(legend.position = "none")) +
+out <- if(supp == TRUE){
+  bp_nu_plot + guide_area() +
+  bp_tnu_plot + nu_tnu_plot +
     plot_layout(guides = "collect", axes = "collect", axis_titles = "collect")
-
 } else{
-  bp_hist_plot + plot_spacer() + plot_spacer() + bp_nu_plot + bnu_hist_plot + plot_spacer() +
-  bp_tnu_plot + nu_tnu_plot + tnu_hist_plot +
-    plot_layout(guides = "collect", axes = "collect", axis_titles = "collect")
-}
+  (bp_nu_plot + labs(tag = "E")) + (bp_tnu_plot + labs(tag = "F")) + (nu_tnu_plot + labs(tag = "G")) +
+    plot_layout(guides = "collect", nrow = 1) & theme(legend.position = "bottom", legend.direction = "horizontal")
+  }
+
+
 
 return(out)
 }
 
-p1 <- cowplot::plot_grid(
-  cowplot::plot_grid(pairs_plot_month("≤6 m"),
+p1 <- cowplot::plot_grid(pairs_plot_month("≤6 m"),
                          pairs_plot_month("7-12 m"),
                          pairs_plot_month("19-24 m"),
                          pairs_plot_month("25-30 m"),
@@ -208,10 +167,7 @@ p1 <- cowplot::plot_grid(
                          nrow = 3,
                          labels = c("A (0-6 months)","B (7-12 months)","C (19-24 months)","D (25-30 months)","E (31-36 months)"),
                      hjust = -3.1
-                         ),
-                         cowplot::get_legend(pairs_plot_month(months = "13-18 m")),
-                         rel_widths = c(1, 0.1),
-                         nrow = 1)
+                         )
 
 ggsave("pairs_plot_supplement.pdf",
        plot = p1,
@@ -244,10 +200,11 @@ gantt_plot <- ggplot(df_gantt) +
         legend.position = "none",
         #plot.margin = margin(unit(c(3,3,3,10),"cm")),
         axis.title.y = element_blank(),
-        text = element_text(size = 14)) +
+        text = element_text(size = 17)) +
   scale_x_continuous(breaks = seq(0,36,6), limits = c(0,37)) +
   labs(x = "Months since net distribution") +
-  scale_fill_manual(values = c("Tanzania (2015)" = cols[1], "Uganda (2017)" = cols[2], "Tanzania (2019)" = cols[3], "Benin (2020)" = cols[4]))
+  scale_fill_manual(values = c("Tanzania (2015)" = cols[1], "Uganda (2017)" = cols[2], "Tanzania (2019)" = cols[3], "Benin (2020)" = cols[4])) +
+  labs(tag = "A")
 
 ### differences in baseline
 
@@ -273,21 +230,19 @@ comp_plot_fun <- function(df, xlab_s){
            x = y,
            fill = factor(l),
            group = interaction(author, l))) +
-  geom_boxplot(alpha = 0.9) +
+  geom_boxplot(alpha = 0.85) +
   pairs_theme +
   scale_x_continuous(labels = scales::percent, limits = c(-0.025, 1.025), breaks = seq(0, 1, 0.25)) +
   theme(legend.title = element_blank(),
-        legend.text = element_text(size = 14),
-        strip.text = element_text(face = "bold", size = 10)) + ylab("Study") +
+        text = element_text(size = 17)) + ylab("Study") +
   xlab(xlab_s) +
-  scale_fill_manual(values = cols_net) +
-    guides(fill = guide_legend(override.aes = list(size = 0.25)))
+  scale_fill_manual(values = cols_net)
 }
 
-comp_plot <-  comp_plot_fun(arm_comp_plot(a = "BL_prev_num", b = "BL_prev_denom", label = "Baseline prevalence"),
-                            "Baseline prevalence") +
-
+comp_plot <- comp_plot_fun(arm_comp_plot(a = "BL_prev_num", b = "BL_prev_denom", label = "Baseline prevalence"),
+                            "Baseline prevalence") + labs(tag = "B") +
   comp_plot_fun(arm_comp_plot(a = "net_use_num", b = "net_use_denom", label = "Baseline net use"), "Baseline net use") +
+  labs(tag = "C") +
   comp_plot_fun(COMBO_stan |>
            mutate(author = factor(author, levels = c("Accrombessi","Mosha","Staedke","Protopopoff"),
                                   labels = c("Benin (2020)", "Tanzania (2019)", "Uganda (2017)", "Tanzania (2015)")),
@@ -296,27 +251,22 @@ comp_plot <-  comp_plot_fun(arm_comp_plot(a = "BL_prev_num", b = "BL_prev_denom"
                   y_upper = unc_bin(0.975, tr_net_use_num, tr_net_use_denom), label = "Trial net use"
            ) |>
            select(cluster, author, l, y, y_lower, y_upper, label),
-        "Trial net use") +
-  plot_layout(guides = "collect",
-              axes = "collect",
-              axis_titles = "collect") +
-  guide_area()
+        "Trial net use")  + labs(tag = "D") +
+  plot_layout(guides = "collect", nrow = 1, axis_titles = "collect") & theme(legend.position = "bottom", legend.direction = "horizontal")
 
 
 # main plot
 p2 <- cowplot::plot_grid(gantt_plot,
-                         cowplot::plot_grid(comp_plot, pairs_plot_month(months = "13-18 m"),
-                         nrow = 1,
-                         labels = c("B","C")),
-                         labels = c("A",""),
-                         nrow = 2,
-                         rel_heights = c(0.3,1))
+                         comp_plot,
+                         pairs_plot_month(months = "13-18 m", supp = FALSE),
+                         nrow = 3,
+                         rel_heights = c(0.3, 0.75, 0.75))
 
 ggsave("pairs_plot_plus_gantt_main.pdf",
        plot = p2,
        device = "pdf",
        width = 45,
-       height = 25,
+       height = 35,
        units = "cm",
        bg="white")
 
