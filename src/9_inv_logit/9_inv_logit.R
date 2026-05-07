@@ -44,7 +44,7 @@ data_limits <- rbind(data_limits, data_limits |> mutate(mean_BL_prev = mean_prev
                                                         min_prev = 0,
                                                         max_prev = 1))
 
-diff_prev <- seq(-1, 1, 0.05)
+diff_prev <- seq(-1, 1, 0.01)
 years <- c(1, 2, 3)
 
 bp_gq <- expand.grid("mean_prev" = mean_BL_prev_combs,
@@ -295,8 +295,61 @@ calc_or_mean_prev <- function(u_gq_in){
 u_gq_mean_prev_or_3 <- calc_or_mean_prev(u_gq_mean_prev_or)
 u_gq_diff_prev_or_3 <- calc_or_mean_prev(u_gq_diff_prev_or)
 
+#############################################
+##### mean prevalence with sample times #####
+#############################################
+
+u_gq_BL_prev <- u_gq |>
+  full_join(unique(COMBO_stan[,c("study", "time")]), relationship = "many-to-many") |>
+  left_join(unique(ucs[,c("study", "mean_BL_prev")]))
+
+u_gq_BL_prev <- u_gq_BL_prev[rep(1:nrow(u_gq_BL_prev), each = length(diff_prev)),] |>
+  mutate(diff_prev = rep(diff_prev, nrow(u_gq_BL_prev)),
+         start_prev = diff_prev + mean_BL_prev,
+         diff_prev_pooled = diff_prev,
+         mean_prev_pooled = mean_prev_pooled) |>
+  filter(start_prev <= 1 & start_prev >= 0)
+
+pred_data_BL_prev <- data_in_full |>
+  purrr::list_assign(gq = 1,
+                     N_gq = nrow(u_gq_BL_prev),
+                     N_ij_gq = length(unique(u_gq_BL_prev$ij)), # the same random effect for all the clusters in each study
+                     N_ij_unq_gq = length(unique(u_gq_BL_prev$i)),
+                     pmat_ij_gq = fastDummies::dummy_cols(u_gq_BL_prev$ij)[,-1] |> as.matrix(),
+                     r_id_gq = seq(1, length(unique(u_gq_BL_prev$i))),
+                     pmat_i_gq = fastDummies::dummy_cols(u_gq_BL_prev$i)[,-1] |> as.matrix(),
+                     pmat_l_gq = fastDummies::dummy_cols(u_gq_BL_prev$l)[,-c(1, 2)] |> as.matrix(),
+                     pmat_li_gq = fastDummies::dummy_cols(u_gq_BL_prev$li)[,-c(1, 2)] |> as.matrix(),
+
+                     pmat_i_pooled_gq = matrix(0, nrow = nrow(u_gq_BL_prev), ncol = length(unique(u_gq_m$i))),
+                     pmat_li_pooled_gq = matrix(0, nrow = nrow(u_gq_BL_prev), ncol = length(unique(u_gq_m$li)) - 1),
+                     pmat_it_pooled_gq = matrix(0, nrow = nrow(u_gq_BL_prev), ncol = length(unique(u_gq_m$it))),
+
+                     ij_train_gq = rep(0, length(unique(u_gq_BL_prev$ij))),
+                     ij_unq_train_gq = rep(1, length(unique(u_gq_BL_prev$i))),
+                     years_gq = u_gq_BL_prev$time/12,
+                     m_prob_s_gq = u_gq_BL_prev$mean_BL_prev,
+                     d_prob_s_gq = u_gq_BL_prev$diff_prev,
+                     m_prob_s_gq_pooled = u_gq_BL_prev$mean_prev_pooled,
+                     d_prob_s_gq_pooled = u_gq_BL_prev$diff_prev_pooled)
+
+model_predict_BL_prev <- rstan::gqs(stan_model,
+                            draws = as.matrix(fit_full),
+                            data = pred_data_BL_prev,
+                            seed = 123)
+
+inv_log_BL_prev <- rstan::extract(model_predict_BL_prev, "inv_logit_posterior")$inv_logit_posterior
+
+u_gq_BL_prev <- u_gq_BL_prev |> left_join(unique(u_gq_BL_prev[,c("l", "i", "diff_prev_pooled", "mean_prev_pooled")]) |> mutate(group = row_number()))
+
+inv_log_BL_prev <- apply(rowsum(t(inv_log_BL_prev), u_gq_BL_prev$group) / as.vector(table(u_gq_BL_prev$group)), 1, quantile, probs = c(lower, 0.5, upper)) |> t() |>
+  cbind(u_gq_BL_prev |> select(-time) |> distinct() |> arrange(group)) |> dplyr::rename(l_p = 1, m_p = 2, u_p = 3)
+
+### saving all results
 saveRDS(list("pred_mean" = pred_mean,
              "pred_diff" = pred_diff,
              "or_mean_3y_mean" = u_gq_mean_prev_or_3,
-             "or_mean_3y_diff" = u_gq_diff_prev_or_3),
+             "or_mean_3y_diff" = u_gq_diff_prev_or_3,
+             "inv_log_BL_prev" = inv_log_BL_prev),
         file = paste0(model, "_pred.rds"))
+

@@ -177,6 +177,11 @@ COMBO_limits_t <- COMBO_stan |> group_by(study) |>
 COMBO_limits_prev <- unique(COMBO_stan[,c("cluster", "study", "net", "diff_base_prev")]) |> group_by(study, net) |>
   summarise(lbp = min(diff_base_prev), ubp = max(diff_base_prev))
 
+COMBO_limits_BL_prev <- unique(COMBO_stan[,c("cluster", "study", "net", "BL_prev")]) |> group_by(study, net) |>
+  summarise(lbp = min(BL_prev), ubp = max(BL_prev))
+
+COMBO_mean_prev <- COMBO_stan |> group_by(cluster, net, BL_prev, study_place) |> summarise(mean_prev = mean(prev))
+
 #####################
 ##### GLM plots #####
 #####################
@@ -213,6 +218,13 @@ or_mean_3y_mean <- or_mean_3y_mean |> mutate(study_place = case_when(str_detect(
 
 or_mean_3y_mean$study_place <- factor(or_mean_3y_mean$study_place, levels = c("Tanzania (2015)", "Uganda (2017)", "Tanzania (2019)", "Benin (2020)"))
 
+inv_log_BL_prev <- inv_log_BL_prev |> mutate(study_place = case_when(str_detect(study, "Protopopoff") ~ "Tanzania (2015)",
+                                                                     str_detect(study, "Staedke") ~ "Uganda (2017)",
+                                                                     str_detect(study, "Mosha") ~ "Tanzania (2019)",
+                                                                     str_detect(study, "Accrombessi") ~ "Benin (2020)"))
+
+inv_log_BL_prev$study_place <- factor(inv_log_BL_prev$study_place, levels = c("Tanzania (2015)", "Uganda (2017)", "Tanzania (2019)", "Benin (2020)"))
+
 cols <- unname(palette.colors(palette = "Okabe-Ito")[c(7,2,3,8)])
 cols_net <- c("blue", "aquamarine", "darkgreen")
 
@@ -240,12 +252,15 @@ round(quantile(rstan::extract(m2_fit_full, "delta_l")[[1]][,2], probs = c(lower,
 round(quantile(rstan::extract(m2_fit_full, "omega")[[1]], probs = c(lower, 0.5, upper)), digits = 2)
 round(quantile(rstan::extract(m2_fit_full, "omega")[[1]] +  rstan::extract(m2_fit_full, "omega_l")[[1]][,1], probs = c(lower, 0.5, upper)), digits = 2)
 
-m2_dp_plot <- ggplot(data = or_mean_3y_diff, #pred_diff,
-                     aes(x = start_prev, y = mean_prev_3_m, ymin = mean_prev_3_l, ymax = mean_prev_3_u, # y = m_p, ymin = l_p, ymax = u_p,
+m2_dp_plot <- ggplot(data = inv_log_BL_prev |> left_join(COMBO_limits_BL_prev) |>
+                       filter(start_prev >= lbp & start_prev <= ubp), #pred_diff,
+                     aes(x = start_prev, y = m_p, ymin = l_p, ymax = u_p,
                          fill = net, group = interaction(study_place, net))) + #, year_plot
+  geom_abline(intercept = 0, slope = 1, linetype = 2, linewidth = 0.75, col = "grey") +
   geom_ribbon(alpha = 0.1) +
   geom_line(aes(col = net), linewidth = 1) +#, linetype = year_plot
   facet_wrap(~ study_place, nrow = 1) +
+  geom_point(data = COMBO_mean_prev, aes(x = BL_prev, y = mean_prev, col = net), inherit.aes = FALSE) +
   ylab("Malaria prevalence") + xlab("Baseline prevalence") +
   scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2), labels = scales::percent) +
   scale_colour_manual(values = cols_net, name = "ITN") +
@@ -262,7 +277,7 @@ m2_o_r_dp_plot <- ggplot(data = or_mean_3y_diff |> filter(net != "Pyrethroid-onl
                   group = interaction(study_place)), alpha = 0.1) + #, year_plot
   geom_ribbon(alpha = 0.1) +
   geom_line(aes(col = study_place), linewidth = 1) +#, linetype = year_plot
-  geom_hline(yintercept = 0, col = "black", linetype = 2) +
+  geom_hline(yintercept = 0, col = "grey", linetype = 2, linewidth = 0.75) +
   facet_wrap(~ net, nrow = 1) +
   ylab("Log odds ratio of infection in trial ITN\nclusters relative to pyrethroid-only clusters") +
   xlab("Within-study differences in baseline prevalence") +
@@ -279,7 +294,7 @@ m2_eff_dp_plot <- ggplot(data = or_mean_3y_diff |> filter(net != "Pyrethroid-onl
                              fill = study_place, group = interaction(study_place, net))) +
   geom_ribbon(alpha = 0.1) +
   geom_line(aes(col = study_place), linewidth = 1) +
-  geom_hline(yintercept = 0, col = "black", linetype = 2) +
+  geom_hline(yintercept = 0, col = "grey", linetype = 2, linewidth = 0.75) +
   facet_wrap(~ net, nrow = 1) +
   ylab("Relative efficacy of trial ITN clusters\nrelative to pyrethroid-only clusters") +
   xlab("Within-study differences in baseline prevalence") +
@@ -301,7 +316,7 @@ m2_mean_BL_prev_o_r_plot <- ggplot(data = or_mean_3y_mean |> #pred_mean
   geom_ribbon(alpha = 0.1) +
   geom_line(aes(col = study_place), linewidth = 1) +
   geom_line(aes(x = mean_prev, y = pooled_mean_or_3_m), inherit.aes = FALSE, linewidth = 1) +
-  geom_hline(yintercept = 0, linetype = 2) +
+  geom_hline(yintercept = 0, linetype = 2, linewidth = 0.75, col = "grey") +
   facet_wrap(~net, scales = "free_x") +
   ylab("Log odds ratio of infection in trial ITN\nclusters relative to pyrethroid-only clusters") +
   xlab("Between study mean baseline prevalence") +
@@ -319,7 +334,7 @@ m2_mean_BL_prev_eff_plot <- ggplot(data = or_mean_3y_mean |>
            fill = study_place, group = interaction(study_place, net))) + #, year_plot
   geom_ribbon(alpha = 0.1) +
   geom_line(aes(col = study_place), linewidth = 1) +
-  geom_hline(yintercept = 0, linetype = 2) +
+  geom_hline(yintercept = 0, linetype = 2, linewidth = 0.75, col = "grey") +
   facet_wrap(~net, scales = "free_x") +
   ylab("Relative efficacy of trial ITN clusters\nrelative to pyrethroid-only clusters") +
   xlab("Between study mean baseline prevalence") +
@@ -344,6 +359,35 @@ ggsave(file = "regression_mean_base_prev.pdf",
          plot_layout(guides = "collect"),
        device = "pdf",
        width = 27.5, height = 20,
+       units = "cm")
+
+##########################################
+##### univariable baseline prevalence #####
+##########################################
+
+COMBO_stan_BL_prev <- COMBO_stan |> group_by(study_place, net, BL_prev, cluster) |>
+  summarise(prev_num = sum(prev_num), prev_denom = sum(prev_denom)) |>
+  mutate(prev = prev_num / prev_denom)
+
+COMBO_stan_BL_prev$study_place <- factor(COMBO_stan_BL_prev$study_place, levels = c("Tanzania (2015)", "Uganda (2017)", "Tanzania (2019)", "Benin (2020)"))
+
+glm(cbind(prev_num, prev_denom - prev_num) ~ BL_prev, family = "binomial", data = COMBO_stan_BL_prev)
+
+uni_BL_prev_plot <- ggplot(data = COMBO_stan_BL_prev, aes(x = BL_prev, y = prev, group = interaction(study_place, net), col = net, fill = net)) +
+  geom_abline(intercept = 0, slope = 1, linetype = 2, linewidth = 0.75, col = "grey") +
+  geom_point() +
+  geom_smooth(se = FALSE, formula = y ~ x, method = "glm", method.args = list(family = "binomial"), aes(weight = prev_denom)) +
+  facet_wrap(~study_place, nrow = 2) +
+  ylab("Mean malaria prevalence post ITN distribution") + xlab("Baseline prevalence") +
+  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2), labels = scales::percent) +
+  scale_colour_manual(values = cols_net, name = "ITN") +
+  scale_fill_manual(values = cols_net, name = "ITN") +
+  scale_x_continuous(limits = c(0, 1), breaks = seq(-0, 1, 0.25), labels = scales::percent)
+
+ggsave(file = "univariable_BL_prev_plots.pdf",
+       plot = uni_BL_prev_plot,
+       device = "pdf",
+       width = 27.5, height = 17.5,
        units = "cm")
 
 ############################
