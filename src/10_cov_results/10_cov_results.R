@@ -252,6 +252,8 @@ round(quantile(rstan::extract(m2_fit_full, "delta_l")[[1]][,2], probs = c(lower,
 round(quantile(rstan::extract(m2_fit_full, "omega")[[1]], probs = c(lower, 0.5, upper)), digits = 2)
 round(quantile(rstan::extract(m2_fit_full, "omega")[[1]] +  rstan::extract(m2_fit_full, "omega_l")[[1]][,1], probs = c(lower, 0.5, upper)), digits = 2)
 
+COMBO_mean_prev$study_place <- factor(COMBO_mean_prev$study_place, levels = c("Tanzania (2015)", "Uganda (2017)", "Tanzania (2019)", "Benin (2020)"))
+
 m2_dp_plot <- ggplot(data = inv_log_BL_prev |> left_join(COMBO_limits_BL_prev) |>
                        filter(start_prev >= lbp & start_prev <= ubp), #pred_diff,
                      aes(x = start_prev, y = m_p, ymin = l_p, ymax = u_p,
