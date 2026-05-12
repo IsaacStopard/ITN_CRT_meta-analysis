@@ -134,6 +134,8 @@ s_all <- rbind(extract_sd(m0_fit_full, "model 0"),
   )
   )
 
+s_all$study_place = factor(s_all$study_place, levels = c("Tanzania (2015)", "Uganda (2017)", "Tanzania (2019)", "Benin (2020)"))
+
 sd_plot <- ggplot(data = s_all, aes(x = sd, fill = model, col = model, group = interaction(study_place, model))) +
   geom_density(alpha = 0.25) +
   facet_wrap(~study_place) +
