@@ -137,7 +137,6 @@ parameters{
   vector[N_l] delta_l;
 
   vector<lower=0, upper=1>[N_ij_train] prob_s_train;
-  vector<lower=0, upper=1>[N_ij_train] base_net_train;
 
   real<lower=0> a;
   real<lower=0> b;
