@@ -1,34 +1,57 @@
-library(rstan)
+library(cmdstanr)
 library(tidyverse)
-library(fastDummies)
 
 orderly2::orderly_dependency("1_data_cleaning", "latest()",
                              c("stan_data.rds"))
 
-orderly2::orderly_shared_resource("m0_c.stan",
-                                  "m0_c_FE.stan",
-                                  "m1_re.stan",
-                                  "m2_re.stan",
-                                  "m3_re.stan",
-                                  "m3_FE.stan")
-
-orderly2::orderly_parameters(model = NULL)
+orderly2::orderly_shared_resource("m0.stan",
+                                  "m1.stan",
+                                  "m2.stan")
 
 list2env(readRDS("stan_data.rds"), envir = .GlobalEnv)
 
-adapt <- if(model == "m3_FE"){0.8}else if(model == "m0_c" | model == "m1_re"){0.999}else{0.99}
-m_td <- if(model == "m0_c" | model == "m0_c_FE" | model == "m3_FE"){11.5}else{14}
-step_in <- if(model == "m0_c" | model == "m1_re"){0.25}else{1}
+model_0 <- cmdstan_model(stan_file = "m0.stan", cpp_options = list(stan_threads = TRUE))
+model_1 <- cmdstan_model(stan_file = "m1.stan", cpp_options = list(stan_threads = TRUE))
+model_2 <- cmdstan_model(stan_file = "m2.stan", cpp_options = list(stan_threads = TRUE))
 
-stan_model_in <- rstan::stan_model(file = paste0(model, ".stan"))
+fit_0 <- model_0$sample(data = data_in_full,
+                        seed = 123,
+                        iter_sampling = iter - warmup,
+                        iter_warmup = warmup,
+                        chains = 4,
+                        init = 2,
+                        parallel_chains = 4,
+                        threads_per_chain = 1,
+                        adapt_delta = 0.9999,
+                        max_treedepth = 15,
+                        step_size = 0.25)
 
-fit_full <- rstan::sampling(stan_model_in,
-                            data = data_in_full,
-                            iter = iter,
-                            warmup = warmup,
-                            control = list(max_treedepth = m_td, adapt_delta = adapt, stepsize = step_in),
-                            cores = 4,
-                            chains = 4,
-                            seed = 123)
+fit_0$save_object(file = "fit_0.rds")
 
-saveRDS(fit_full, file = paste0(model, "_fit_full.rds"))
+fit_1 <- model_1$sample(data = data_in_full,
+                        seed = 123,
+                        iter_sampling = iter - warmup,
+                        iter_warmup = warmup,
+                        chains = 4,
+                        init = 2,
+                        parallel_chains = 4,
+                        threads_per_chain = 1,
+                        adapt_delta = 0.9999,
+                        max_treedepth = 15,
+                        step_size = 0.25)
+
+fit_1$save_object(file = "fit_1.rds")
+
+fit_2 <- model_2$sample(data = data_in_full,
+                        seed = 123,
+                        iter_sampling = iter - warmup,
+                        iter_warmup = warmup,
+                        chains = 4,
+                        init = 2,
+                        parallel_chains = 4,
+                        threads_per_chain = 1,
+                        adapt_delta = 0.99,
+                        max_treedepth = 12)
+
+fit_2$save_object(file = "fit_2.rds")
+

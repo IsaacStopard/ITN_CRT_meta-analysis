@@ -87,6 +87,14 @@ data{
 
 }
 
+transformed data{
+  
+  real s_i = sqrt(N_i / (N_i - 1.0));
+  real s_i_pp = sqrt(N_i_pp / (N_i_pp - 1.0));
+  real s_i_pbo = sqrt(N_i_pbo / (N_i_pbo - 1.0));
+  
+}
+
 // The parameters accepted by the model. Our model
 // accepts two parameters 'mu' and 'sigma'.
 parameters{
@@ -113,7 +121,7 @@ transformed parameters{
   vector[N] z_ij;
   vector[N_ij_unq] sigma_e_r;
   vector[N_ij] e_raw;
-  vector[N_li] theta_li = append_row(e_raw_li_pbo * tau_sd_li[1], e_raw_li_pp * tau_sd_li[2]);
+  vector[N_li] theta_li = append_row(e_raw_li_pbo * tau_sd_li[1] * s_i_pbo, e_raw_li_pp * tau_sd_li[2] * s_i_pp);
 
   // mean predictions
   mu_ij = logit_prob_fun_no_cl(N, pmat_i, pmat_l, pmat_li, alpha, alpha_i, theta_l, theta_li);
@@ -144,12 +152,12 @@ model{
 
   // intercept parameters
   alpha ~ normal(0, prior_sd);
-  alpha_i ~ normal(0, prior_sd);
+  alpha_i ~ normal(0, prior_sd * s_i);
 
   sigma_e_r_train ~ exponential(1);
   e_raw_train ~ std_normal();
 
-  tau_sd_li ~ exponential(1);
+  tau_sd_li ~ exponential(0.5);
   e_raw_li_pbo ~ std_normal();
   e_raw_li_pp ~ std_normal();
 

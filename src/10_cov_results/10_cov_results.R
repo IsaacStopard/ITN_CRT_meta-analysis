@@ -1,4 +1,5 @@
-library(rstan)
+library(cmdstanr)
+library(posterior)
 library(tidyverse)
 library(loo)
 library(patchwork)
@@ -20,70 +21,56 @@ orderly2::orderly_dependency("1_data_cleaning", "latest()", c("stan_data.rds"))
 
 list2env(readRDS("stan_data.rds"), envir = .GlobalEnv)
 
-orderly2::orderly_dependency("2_fits",
-                             quote(latest(parameter:model == "m0_c")),
-                             "m0_c_fit_full.rds"
-)
+orderly2::orderly_dependency("2_fits", "latest()", c("fit_0.rds", "fit_1.rds", "fit_2.rds"))
 
-orderly2::orderly_dependency("2_fits",
-                             quote(latest(parameter:model == "m1_re")),
-                             "m1_re_fit_full.rds"
-)
-
-orderly2::orderly_dependency("2_fits",
-                             quote(latest(parameter:model == "m2_re")),
-                             "m2_re_fit_full.rds"
-)
-
-m2_fit_full <- readRDS(file = "m2_re_fit_full.rds")
-
-m1_fit_full <- readRDS(file = "m1_re_fit_full.rds")
-
-m0_fit_full <- readRDS(file = "m0_c_fit_full.rds")
+m2_fit_full <- readRDS(file = "fit_2.rds")
+m1_fit_full <- readRDS(file = "fit_1.rds")
+m0_fit_full <- readRDS(file = "fit_0.rds")
 
 orderly2::orderly_dependency("9_inv_logit",
-                             quote(latest(parameter:model == "m2_re")),
-                             "m2_re_pred.rds")
+                             "latest()",
+                             "m2_pred.rds")
 
-list2env(readRDS(file = "m2_re_pred.rds"), envir = .GlobalEnv)
+list2env(readRDS(file = "m2_pred.rds"), envir = .GlobalEnv)
 
-orderly2::orderly_shared_resource("m0_c.stan",
-                                  "m1_re.stan",
-                                  "m2_re.stan")
+orderly2::orderly_shared_resource("m0.stan",
+                                  "m1.stan",
+                                  "m2.stan",
+                                  "model_functions.R")
 
-m0_stan_model <- rstan::stan_model(file = "m0_c.stan")
+source("model_functions.R")
 
-m1_stan_model <- rstan::stan_model(file = "m1_re.stan")
-
-m2_stan_model <- rstan::stan_model(file = "m2_re.stan")
+m0_stan_model <- cmdstan_model(stan_file = "m0.stan")
+m1_stan_model <- cmdstan_model(stan_file = "m1.stan")
+m2_stan_model <- cmdstan_model(stan_file = "m2.stan")
 
 ############################
 ##### model comparison #####
 ############################
 
 orderly2::orderly_dependency("3_cv",
-                             quote(latest(parameter:model == "m0_c")),
-                             "m0_c_log_pd_kfold.rds")
+                             quote(latest(parameter:model == "m0")),
+                             "m0_log_pd_kfold.rds")
 
 orderly2::orderly_dependency("3_cv",
-                             quote(latest(parameter:model == "m1_re")),
-                             "m1_re_log_pd_kfold.rds")
+                             quote(latest(parameter:model == "m1")),
+                             "m1_log_pd_kfold.rds")
 
 orderly2::orderly_dependency("3_cv",
-                             quote(latest(parameter:model == "m2_re")),
-                             "m2_re_log_pd_kfold.rds")
+                             quote(latest(parameter:model == "m2")),
+                             "m2_log_pd_kfold.rds")
 
-m0_c_log_pd_kfold <- readRDS("m0_c_log_pd_kfold.rds")
-m1_re_log_pd_kfold <- readRDS("m1_re_log_pd_kfold.rds")
-m2_re_log_pd_kfold <- readRDS("m2_re_log_pd_kfold.rds")
+m0_log_pd_kfold <- readRDS("m0_log_pd_kfold.rds")
+m1_log_pd_kfold <- readRDS("m1_log_pd_kfold.rds")
+m2_log_pd_kfold <- readRDS("m2_log_pd_kfold.rds")
 
 # checking the fits
 # leave one out cross validation
-m0_c_elpd_kfold <- elpd(m0_c_log_pd_kfold)
-m1_re_elpd_kfold <- elpd(m1_re_log_pd_kfold)
-m2_re_elpd_kfold <- elpd(m2_re_log_pd_kfold)
+m0_elpd_kfold <- elpd(m0_log_pd_kfold)
+m1_elpd_kfold <- elpd(m1_log_pd_kfold)
+m2_elpd_kfold <- elpd(m2_log_pd_kfold)
 
-loo_comp <- round(loo_compare(m0_c_elpd_kfold, m1_re_elpd_kfold, m2_re_elpd_kfold), digits = 1)
+loo_comp <- round(loo_compare(m0_elpd_kfold, m1_elpd_kfold, m2_elpd_kfold), digits = 1)
 
 elpd_table <- data.frame("model" = c("model 0", "model 1", "model 2"),
                          "elpd" = c(loo_comp["model1", "elpd"], loo_comp["model2", "elpd"], loo_comp["model3", "elpd"]),
@@ -94,7 +81,7 @@ write.csv(elpd_table, "elpd_table.csv")
 
 # actual vs fitted plot
 extract_af <- function(fit_full){
-  cbind(rstan::extract(fit_full, "inv_logit_posterior")$inv_logit_posterior |>
+  cbind(fit_full$draws("inv_logit_lp") |> as_draws_matrix() |>
           apply(2, quantile, probs = c(lower, 0.5, upper)) |>
           t() |> as.data.frame() |> rename(l_p = 1, m_p = 2, u_p = 3),
         COMBO_stan[,c("cluster", "time", "l", "li", "study", "net", "prev", "prev_lower", "prev_upper")])
@@ -106,7 +93,7 @@ m2_af <- extract_af(m2_fit_full) |> mutate(model = "model 2")
 
 af_plot <- ggplot(data = rbind(m0_af, m1_af, m2_af),
                   aes(x = prev, xmin = prev_lower, xmax = prev_upper, y = m_p, ymin = l_p, ymax = u_p, colour = model)) +
-  geom_errorbarh(alpha = 0.1, linewidth = 0.1) +
+  geom_errorbar(alpha = 0.1, linewidth = 0.15, orientation = "y") +
   geom_pointrange(alpha = 0.5, size = 0.7) +
   geom_abline(slope = 1, linetype = 2) +
   scale_y_continuous(labels = scales::percent, limits = c(0, 1), breaks = seq(0, 1, 0.25)) +
@@ -118,7 +105,7 @@ af_plot <- ggplot(data = rbind(m0_af, m1_af, m2_af),
 
 # random effects variance
 extract_sd <- function(model_fit, model_name){
-  out <- rstan::extract(model_fit, "sigma_e_r_train")$sigma_e_r |> as.data.frame()
+  out <- model_fit$draws("sigma_e_r") |> as_draws_matrix() |> as.data.frame()
   colnames(out) <- unique(COMBO_stan[,c("i", "study")])[,2]
   return(out |> pivot_longer(cols = 1:4, names_to = "study", values_to = "sd") |> mutate(model = model_name))
 }
@@ -163,9 +150,8 @@ ucs <- unique(COMBO_stan[, c("cluster", "study", "i", "BL_prev_num", "BL_prev_de
 
 COMBO_stan <- COMBO_stan |>
   left_join(ucs |> group_by(study) |>
-              summarise(mean_BL_prev = mean(BL_prev))) |>
-  mutate(diff_base_prev = BL_prev - mean_BL_prev,
-         BL_prev_group = cut(diff_base_prev, breaks = seq(-1, 1, 0.2)),
+              summarise(base_prev_mean = mean(BL_prev))) |>
+  mutate(base_prev_diff = BL_prev - base_prev_mean,
          study_place = case_when(
            str_detect(study, "Protopopoff") ~ "Tanzania (2015)",
            str_detect(study, "Staedke") ~ "Uganda (2017)",
@@ -176,8 +162,8 @@ COMBO_stan <- COMBO_stan |>
 COMBO_limits_t <- COMBO_stan |> group_by(study) |>
   summarise(lt = min(time)/12, ut = max(time)/12)
 
-COMBO_limits_prev <- unique(COMBO_stan[,c("cluster", "study", "net", "diff_base_prev")]) |> group_by(study, net) |>
-  summarise(lbp = min(diff_base_prev), ubp = max(diff_base_prev))
+COMBO_limits_prev <- unique(COMBO_stan[,c("cluster", "study", "net", "base_prev_diff")]) |> group_by(study, net) |>
+  summarise(lbp = min(base_prev_diff), ubp = max(base_prev_diff))
 
 COMBO_limits_BL_prev <- unique(COMBO_stan[,c("cluster", "study", "net", "BL_prev")]) |> group_by(study, net) |>
   summarise(lbp = min(BL_prev), ubp = max(BL_prev))
@@ -195,8 +181,7 @@ plot_labels_fun <- function(df){
                         str_detect(study, "Staedke") ~ "Uganda (2017)",
                         str_detect(study, "Mosha") ~ "Tanzania (2019)",
                         str_detect(study, "Accrombessi") ~ "Benin (2020)"
-                        ),
-                      year_plot = paste(years, "year post ITN distribution")
+                        )
                       )
 
   out$study_place <- factor(out$study_place, levels = c("Tanzania (2015)", "Uganda (2017)", "Tanzania (2019)", "Benin (2020)"))
@@ -204,60 +189,26 @@ plot_labels_fun <- function(df){
   return(out)
 }
 
-pred_mean <- plot_labels_fun(pred_mean)
-pred_diff <- plot_labels_fun(pred_diff)
+or_mean_3y_diff <- plot_labels_fun(or_mean_3y_diff) |> left_join(COMBO_limits_prev) |>
+  filter(base_prev_diff >= lbp & base_prev_diff <= ubp)
+or_mean_3y_diff_pool <- plot_labels_fun(or_mean_3y_diff_pool) |> left_join(COMBO_limits_prev) |>
+  filter(base_prev_diff >= lbp & base_prev_diff <= ubp)
+or_mean_3y_mean <- plot_labels_fun(or_mean_3y_mean)
+or_mean_3y_mean_pool <- plot_labels_fun(or_mean_3y_mean_pool)
+inv_log_BL_prev <- plot_labels_fun(inv_log_BL_prev) |> left_join(COMBO_limits_BL_prev) |>
+  filter(start_prev >= lbp & start_prev <= ubp)
 
-or_mean_3y_diff <- or_mean_3y_diff |> mutate(study_place = case_when(str_detect(study, "Protopopoff") ~ "Tanzania (2015)",
-                                                                     str_detect(study, "Staedke") ~ "Uganda (2017)",
-                                                                     str_detect(study, "Mosha") ~ "Tanzania (2019)",
-                                                                     str_detect(study, "Accrombessi") ~ "Benin (2020)"))
-or_mean_3y_diff$study_place <- factor(or_mean_3y_diff$study_place, levels = c("Tanzania (2015)", "Uganda (2017)", "Tanzania (2019)", "Benin (2020)"))
+eff_mean_3y_diff <- plot_labels_fun(eff_mean_3y_diff) |> left_join(COMBO_limits_prev) |>
+  filter(base_prev_diff >= lbp & base_prev_diff <= ubp)
 
-or_mean_3y_mean <- or_mean_3y_mean |> mutate(study_place = case_when(str_detect(study, "Protopopoff") ~ "Tanzania (2015)",
-                                                                     str_detect(study, "Staedke") ~ "Uganda (2017)",
-                                                                     str_detect(study, "Mosha") ~ "Tanzania (2019)",
-                                                                     str_detect(study, "Accrombessi") ~ "Benin (2020)"))
-
-or_mean_3y_mean$study_place <- factor(or_mean_3y_mean$study_place, levels = c("Tanzania (2015)", "Uganda (2017)", "Tanzania (2019)", "Benin (2020)"))
-
-inv_log_BL_prev <- inv_log_BL_prev |> mutate(study_place = case_when(str_detect(study, "Protopopoff") ~ "Tanzania (2015)",
-                                                                     str_detect(study, "Staedke") ~ "Uganda (2017)",
-                                                                     str_detect(study, "Mosha") ~ "Tanzania (2019)",
-                                                                     str_detect(study, "Accrombessi") ~ "Benin (2020)"))
-
-inv_log_BL_prev$study_place <- factor(inv_log_BL_prev$study_place, levels = c("Tanzania (2015)", "Uganda (2017)", "Tanzania (2019)", "Benin (2020)"))
+eff_mean_3y_mean <- plot_labels_fun(eff_mean_3y_mean)
 
 cols <- unname(palette.colors(palette = "Okabe-Ito")[c(7,2,3,8)])
 cols_net <- c("blue", "aquamarine", "darkgreen")
 
-################
-##### time #####
-################
-
-round(quantile(rstan::extract(m2_fit_full, "delta")[[1]], probs = c(lower, 0.5, upper)), digits = 2)
-
-quantile(exp(rstan::extract(m1_fit_full, "kappa")[[1]]), probs = c(lower, 0.5, upper)) |> round(digits = 2)
-quantile(exp(rstan::extract(m1_fit_full, "kappa")[[1]] + rstan::extract(m1_fit_full, "kappa_l")[[1]][,1]), probs = c(lower, 0.5, upper)) |> round(digits = 2)
-quantile(exp(rstan::extract(m1_fit_full, "kappa")[[1]] + rstan::extract(m1_fit_full, "kappa_l")[[1]][,2]), probs = c(lower, 0.5, upper)) |> round(digits = 2)
-
-################################
-##### baseline prevalence  #####
-################################
-
-round(quantile(rstan::extract(m2_fit_full, "gamma")[[1]] + rstan::extract(m2_fit_full, "delta")[[1]] * 1, probs = c(lower, 0.5, upper)), digits = 2)
-round(quantile(rstan::extract(m2_fit_full, "gamma")[[1]] + rstan::extract(m2_fit_full, "delta")[[1]] * 1 + rstan::extract(m2_fit_full, "delta_l")[[1]][,1], probs = c(lower, 0.5, upper)), digits = 2)
-round(quantile(rstan::extract(m2_fit_full, "gamma")[[1]] + rstan::extract(m2_fit_full, "delta")[[1]] * 1 + rstan::extract(m2_fit_full, "delta_l")[[1]][,2], probs = c(lower, 0.5, upper)), digits = 2)
-
-round(quantile(rstan::extract(m2_fit_full, "delta_l")[[1]][,1], probs = c(lower, 0.5, upper)), digits = 2)
-round(quantile(rstan::extract(m2_fit_full, "delta_l")[[1]][,2], probs = c(lower, 0.5, upper)), digits = 2)
-
-round(quantile(rstan::extract(m2_fit_full, "omega")[[1]], probs = c(lower, 0.5, upper)), digits = 2)
-round(quantile(rstan::extract(m2_fit_full, "omega")[[1]] +  rstan::extract(m2_fit_full, "omega_l")[[1]][,1], probs = c(lower, 0.5, upper)), digits = 2)
-
 COMBO_mean_prev$study_place <- factor(COMBO_mean_prev$study_place, levels = c("Tanzania (2015)", "Uganda (2017)", "Tanzania (2019)", "Benin (2020)"))
 
-m2_dp_plot <- ggplot(data = inv_log_BL_prev |> left_join(COMBO_limits_BL_prev) |>
-                       filter(start_prev >= lbp & start_prev <= ubp), #pred_diff,
+m2_dp_plot <- ggplot(data = inv_log_BL_prev, #pred_diff,
                      aes(x = start_prev, y = m_p, ymin = l_p, ymax = u_p,
                          fill = net, group = interaction(study_place, net))) + #, year_plot
   geom_abline(intercept = 0, slope = 1, linetype = 2, linewidth = 0.75, col = "grey") +
@@ -274,10 +225,11 @@ m2_dp_plot <- ggplot(data = inv_log_BL_prev |> left_join(COMBO_limits_BL_prev) |
   labs(tag = "A")
 
 m2_o_r_dp_plot <- ggplot(data = or_mean_3y_diff |> filter(net != "Pyrethroid-only"), #pred_diff
-                         aes(x = diff_prev, y = mean_or_3_m, ymin = mean_or_3_l, ymax = mean_or_3_u, #ymin = l_or, ymax = u_or, y = m_or,
+                         aes(x = base_prev_diff, y = med, ymin = low, ymax = up, #ymin = l_or, ymax = u_or, y = m_or,
                              fill = study_place, group = interaction(study_place, net))) +#, year_plot
   geom_ribbon(inherit.aes = FALSE,
-              aes(x = diff_prev, y = pooled_mean_or_3_m, ymin = pooled_mean_or_3_l, ymax = pooled_mean_or_3_u, #y = m_or_pooled, ymin = l_or_pooled, ymax = u_or_pooled,
+              data = subset(or_mean_3y_diff_pool, l != 1 ),
+              aes(x = base_prev_diff, y = med, ymin = low, ymax = up, #y = m_or_pooled, ymin = l_or_pooled, ymax = u_or_pooled,
                   group = interaction(study_place)), alpha = 0.1) + #, year_plot
   geom_ribbon(alpha = 0.1) +
   geom_line(aes(col = study_place), linewidth = 1) +#, linetype = year_plot
@@ -288,13 +240,14 @@ m2_o_r_dp_plot <- ggplot(data = or_mean_3y_diff |> filter(net != "Pyrethroid-onl
   scale_x_continuous(limits = c(-0.55, 0.55), breaks = seq(-0.5, 0.5, 0.25), labels = scales::percent) +
   scale_colour_manual(values = cols, name = "study") +
   scale_fill_manual(values = cols, name = "study") +
-  geom_line(inherit.aes = FALSE, aes(x = diff_prev, y = pooled_mean_or_3_m), linewidth = 1) +#, linetype = year_plot # m_or_pooled
+  geom_line(inherit.aes = FALSE, data = subset(or_mean_3y_diff_pool, l != 1),
+            aes(x = base_prev_diff, y = med), linewidth = 1) +#, linetype = year_plot # m_or_pooled
   #scale_linetype_manual(values = c(1, 2, 3), name = "") +
   scale_y_continuous(breaks = seq(-4, 2, 1)) +
   labs(tag = "B")
 
-m2_eff_dp_plot <- ggplot(data = or_mean_3y_diff |> filter(net != "Pyrethroid-only"),
-                         aes(x = diff_prev, y = mean_eff_3_m / 100, ymin = mean_eff_3_l / 100, ymax = mean_eff_3_u / 100,
+m2_eff_dp_plot <- ggplot(data = eff_mean_3y_diff |> filter(net != "Pyrethroid-only"),
+                         aes(x = base_prev_diff, y = med, ymin = low, ymax = up,
                              fill = study_place, group = interaction(study_place, net))) +
   geom_ribbon(alpha = 0.1) +
   geom_line(aes(col = study_place), linewidth = 1) +
@@ -303,38 +256,35 @@ m2_eff_dp_plot <- ggplot(data = or_mean_3y_diff |> filter(net != "Pyrethroid-onl
   ylab("Relative efficacy of trial ITN clusters\nrelative to pyrethroid-only clusters") +
   xlab("Within-study differences in baseline prevalence") +
   scale_x_continuous(limits = c(-0.55, 0.55), breaks = seq(-0.5, 0.5, 0.25), labels = scales::percent) +
-  scale_y_continuous(labels = scales::percent, breaks = seq(-2, 1, 0.5)) +
+  scale_y_continuous(labels = scales::percent, breaks = seq(-2, 1, 0.25)) +
   scale_colour_manual(values = cols, name = "study") +
   scale_fill_manual(values = cols, name = "study") +
-  coord_cartesian(ylim = c(-2, 1)) +
+  coord_cartesian(ylim = c(-1, 1)) +
   labs(tag = "C")
 
-m2_mean_BL_prev_o_r_plot <- ggplot(data = or_mean_3y_mean |> #pred_mean
-                                     left_join(COMBO_stan |> group_by(net) |> summarise(min_mean_BL_prev = min(mean_BL_prev),
-                                                                                        max_mean_BL_prev = max(mean_BL_prev))) |>
-                                     subset(net != "Pyrethroid-only" & mean_prev >= min_mean_BL_prev & mean_prev <= max_mean_BL_prev),
-                        aes(x = mean_prev, y = mean_or_3_m, ymin = mean_or_3_l, ymax = mean_or_3_u,
+m2_mean_BL_prev_o_r_plot <- ggplot(data = or_mean_3y_mean |>
+                                     subset(net != "Pyrethroid-only"),
+                        aes(x = base_prev_mean, y = med, ymin = low, ymax = up,
                             fill = study_place, group = interaction(study_place, net))) + #, year_plot
-  geom_ribbon(aes(x = mean_prev, ymin = pooled_mean_or_3_l, ymax = pooled_mean_or_3_u,
+  geom_ribbon(data = subset(or_mean_3y_mean_pool, net != "Pyrethroid-only"), 
+              aes(x = base_prev_mean, ymin = low, ymax = up,
                   group = interaction(net)), inherit.aes = FALSE, alpha = 0.1) +
   geom_ribbon(alpha = 0.1) +
   geom_line(aes(col = study_place), linewidth = 1) +
-  geom_line(aes(x = mean_prev, y = pooled_mean_or_3_m), inherit.aes = FALSE, linewidth = 1) +
+  geom_line(data = subset(or_mean_3y_mean_pool, net != "Pyrethroid-only"), 
+            aes(x = base_prev_mean, y = med), inherit.aes = FALSE, linewidth = 1) +
   geom_hline(yintercept = 0, linetype = 2, linewidth = 0.75, col = "grey") +
   facet_wrap(~net, scales = "free_x") +
   ylab("Log odds ratio of infection in trial ITN\nclusters relative to pyrethroid-only clusters") +
   xlab("Between study mean baseline prevalence") +
-  scale_y_continuous(limits = c(-5, 2), breaks = seq(-5, 2, 1)) +
+  scale_y_continuous(limits = c(-2, 1), breaks = seq(-2, 1, 0.5)) +
   scale_colour_manual(values = cols, name = "study") +
   scale_fill_manual(values = cols, name = "study") +
   scale_x_continuous(labels = scales::percent) +
   labs(tag = "A")
 
-m2_mean_BL_prev_eff_plot <- ggplot(data = or_mean_3y_mean |>
-                                     left_join(COMBO_stan |> group_by(net) |> summarise(min_mean_BL_prev = min(mean_BL_prev),
-                                                            max_mean_BL_prev = max(mean_BL_prev))) |>
-         subset(net != "Pyrethroid-only" & mean_prev >= min_mean_BL_prev & mean_prev <= max_mean_BL_prev),
-       aes(x = mean_prev, y = mean_eff_3_m/100, ymin = mean_eff_3_l/100, ymax = mean_eff_3_u/100,
+m2_mean_BL_prev_eff_plot <- ggplot(data = eff_mean_3y_mean |> subset(net != "Pyrethroid-only"),
+       aes(x = base_prev_mean, y = med, ymin = low, ymax = up,
            fill = study_place, group = interaction(study_place, net))) + #, year_plot
   geom_ribbon(alpha = 0.1) +
   geom_line(aes(col = study_place), linewidth = 1) +
@@ -398,77 +348,35 @@ ggsave(file = "univariable_BL_prev_plots.pdf",
 ##### parameter values #####
 ############################
 
-get_quantiles <- function(model_fit, param, dim = NULL){
-  out <- rstan::extract(model_fit, param)[[1]]
-  if(!is.null(dim)){
-    out <- out[,dim]
-  }
-  prob_g0 <- round(sum(out > 0) / length(out), digits = 2)
-  out <- round(quantile(out, probs = c(lower, 0.5, upper)), digits = 2)
-  return(paste0(out[2], " (", out[1], " - ", out[3], " 95%CI, p(>0) = ", prob_g0,")"))
-}
-
-get_params <- function(fit){
-  params <- c("$\\alpha$")
-  params_description <- ("pooled intercept")
-  values <- c(get_quantiles(fit, "alpha", dim = NULL))
-  # alpha_i
-  params <- c(params, "$\\alpha_{i}$", "$\\alpha_{i}$", "$\\alpha_{i}$", "$\\alpha_i$")
-  params_description <- c(params_description, "study effect (Tanzania (2015))", "study effect (Uganda (2017))", "study effect (Tanzania (2019))", "study effect (Benin (2020))")
-  for(i in 1:4){
-    values <- c(values, get_quantiles(fit, "alpha_i", dim = i))
-  }
-  # net effect
-  params <- c(params, "$\\theta_{l}$")
-  params_description <- c(params_description, "pyrethroid-PBO pooled treatment effect")
-  values <- c(values, get_quantiles(fit, "theta_l", dim = 1))
-
-  params_description <- c(params_description, "pyrethroid-PBO-Tanzania (2015) interaction", "pyrethroid-PBO-Uganda (2017) interaction", "pyrethroid-PBO-Tanzania (2019) interaction")
-  params <- c(params, "$\\theta_{li}$", "$\\theta_{li}$", "$\\theta_{li}$")
-  for(i in 1:3){
-    values <- c(values, get_quantiles(fit, "theta_li", dim = i))
-  }
-
-  params <- c(params, "$\\theta_{l}$")
-  params_description <- c(params_description, "pyrethroid-pyrrole pooled treatment effect")
-  values <- c(values, get_quantiles(fit, "theta_l", dim = 2))
-
-  params_description <- c(params_description, "pyrethroid-PBO-Tanzania (2019) interaction", "pyrethroid-pyrrole-Benin (2020) interaction")
-  params <- c(params, "$\\theta_{li}$", "$\\theta_{li}$")
-  values <- c(values, get_quantiles(fit, "theta_li", dim = 4), get_quantiles(fit, "theta_li", dim = 5))
-
-  params_description <- c(params_description, "Tanzania (2015) cluster random effect standard deviation", "Uganda (2017) cluster random effect standard deviation",
-                          "Tanzania (2019) cluster random effect standard deviation", "Benin (2020) cluster random effect standard deviation")
-
-  params <- c(params, "$\\sigma_{i}$", "$\\sigma_{i}$", "$\\sigma_{i}$", "$\\sigma_{i}$")
-  values <- c(values, get_quantiles(fit, "sigma_e_r", dim = 1), get_quantiles(fit, "sigma_e_r", dim = 2),
-              get_quantiles(fit, "sigma_e_r", dim = 3), get_quantiles(fit, "sigma_e_r", dim = 4))
-
-  params_description <- c(params_description, "pyrethroid-PBO between study random treatment effect standard deviation", "pyrethroid-pyrrole between study random treatment effect standard deviation")
-  params <- c(params, "$\\tau_{l}", "$\\tau_{l}")
-  values <- c(values, get_quantiles(fit, "tau_sd_li", dim = 1), get_quantiles(fit, "tau_sd_li", dim = 2))
-
-  return(list("params" = params, "params_description" = params_description, "values" = values))
-}
-
 # model 2
 m2_params <- get_params(fit = m2_fit_full)
 m2_params_df <- data.frame("params" = m2_params$params, params_description = m2_params$params_description, "values" = m2_params$values)
+
 m2_params_df <- rbind(m2_params_df,
                       data.frame(
-                        "params" = c("$\\kappa$",
-                                     "$\\kappa_{l}$",
-                                     "$\\kappa_{l}",
+                        "params" = c("$\\kappa^{\\text{pooled}}$", "$\\kappa_{1}$", "$\\kappa_{2}", "$\\kappa_{3}$", "$\\kappa_{4}",
+                                     "$\\kappa^{\\text{net}}_{1}$", "$\\kappa^{\\text{net}}_{2}$", "$\\kappa^{\\text{study}}_{2}$",
+                                     "$\\kappa^{\\text{study}}_{3}$", "$\\kappa^{\\text{study}}_{4}$", "$\\kappa^{\\text{study}}_{5}$",
+                                     "$\\kappa^{\\text{study}}_{6}$",
                                      "$\\gamma$",
-                                     "$\\gamma^{net}_{l}$",
-                                     "$\\gamma^{net}_{l}$",
+                                     "$\\gamma^{\\text{net}}_{1}$",
+                                     "$\\gamma^{\\text{net}}_{2}$",
                                      "$\\delta$",
                                      "$\\omega$",
-                                     "$\\omega^{net}_{l}$",
-                                     "$\\omega^{net}_{l}$"),
-                        "params_description" = c("year effect",
-                                                 "pyrethroid-PBO year effect interaction",
-                                                 "pyrethroid-pyrrole year effect interaction",
+                                     "$\\omega^{\\text{net}}_{1}$",
+                                     "$\\omega^{\\text{net}}_{2}$"),
+                        "params_description" = c("pooled year effect",
+                                                 "Tanzania (2015) year effect",
+                                                 "Uganda (2017) year effect",
+                                                 "Tanzania (2019) year effect",
+                                                 "Benin (2020) year effect",
+                                                 "pooled pyrethroid-PBO year effect interaction", 
+                                                 "pooled pyrethroid-pyrrole year effect interaction",
+                                                 "Tanzania (2015) pyrethroid-PBO year effect interaction",
+                                                 "Uganda (2017) pyrethroid-PBO year effect interaction",
+                                                 "Tanzania (2019) pyrethroid-PBO year effect interaction",
+                                                 "Tanzania (2019) pyrethroid-pyrrole year effect interaction",
+                                                 "Benin (2020) pyrethroid-pyrrole year effect interaction",
                                                  "within study differences in baseline prevalence effect",
                                                  "within study differences in baseline prevalence pyrethroid-PBO interaction",
                                                  "within study differences in baseline prevalence pyrethroid-pyrrole interaction",
@@ -477,16 +385,25 @@ m2_params_df <- rbind(m2_params_df,
                                                  "mean study baseline prevalence pyrethroid-PBO interaction",
                                                  "mean study baseline prevalence pyrethroid-pyrrole interaction"
                                                  ),
-                        "values" = c(get_quantiles(model_fit = m2_fit_full, param = "kappa", dim = NULL),
-                                     get_quantiles(model_fit = m2_fit_full, param = "kappa_l", dim = 1),
-                                     get_quantiles(model_fit = m2_fit_full, param = "kappa_l", dim = 2),
+                        "values" = c(get_quantiles(model_fit = m1_fit_full, param = "kappa", dim = NULL),
+                                     get_quantiles(model_fit = m1_fit_full, param = "kappa_i", dim = 1),
+                                     get_quantiles(model_fit = m1_fit_full, param = "kappa_i", dim = 2),
+                                     get_quantiles(model_fit = m1_fit_full, param = "kappa_i", dim = 3),
+                                     get_quantiles(model_fit = m1_fit_full, param = "kappa_i", dim = 4),
+                                     get_quantiles(model_fit = m1_fit_full, param = "kappa_l", dim = 1),
+                                     get_quantiles(model_fit = m1_fit_full, param = "kappa_l", dim = 2),
+                                     get_quantiles(model_fit = m1_fit_full, param = "kappa_li", dim = 2),
+                                     get_quantiles(model_fit = m1_fit_full, param = "kappa_li", dim = 3),
+                                     get_quantiles(model_fit = m1_fit_full, param = "kappa_li", dim = 4),
+                                     get_quantiles(model_fit = m1_fit_full, param = "kappa_li", dim = 5),
+                                     get_quantiles(model_fit = m1_fit_full, param = "kappa_li", dim = 6),
                                      get_quantiles(model_fit = m2_fit_full, param = "gamma", dim = NULL),
-                                     get_quantiles(model_fit = m2_fit_full, param = "delta_l", dim = 1),
-                                     get_quantiles(model_fit = m2_fit_full, param = "delta_l", dim = 2),
+                                     get_quantiles(model_fit = m2_fit_full, param = "delta_l_raw", dim = 1),
+                                     get_quantiles(model_fit = m2_fit_full, param = "delta_l_raw", dim = 2),
                                      get_quantiles(model_fit = m2_fit_full, param = "delta", dim = NULL),
                                      get_quantiles(model_fit = m2_fit_full, param = "omega", dim = NULL),
-                                     get_quantiles(model_fit = m2_fit_full, param = "omega_l", dim = 1),
-                                     get_quantiles(model_fit = m2_fit_full, param = "omega_l", dim = 2)
+                                     get_quantiles(model_fit = m2_fit_full, param = "omega_l_raw", dim = 1),
+                                     get_quantiles(model_fit = m2_fit_full, param = "omega_l_raw", dim = 2)
                                      )
                         )
                       )

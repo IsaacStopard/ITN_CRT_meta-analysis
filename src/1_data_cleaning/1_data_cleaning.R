@@ -2,8 +2,6 @@
 ##### TRIAL DATA CLEANING AND COMBINATION #####
 ###############################################
 
-# setwd("/Users/ijs11/Documents/GitHub/trials/src/1_data_cleaning")
-
 # packages
 pacman::p_load(tidyverse,
                rio,
@@ -407,8 +405,8 @@ COMBO_stan <- bind_rows(
       i == 2 & l == 2 ~ 3,
       i == 3 & l == 2 ~ 4,
       i == 3 & l == 3 ~ 5,
-      i == 3 & l == 4 ~ 6,
-      i == 4 & l == 3 ~ 7,
+      i == 4 & l == 3 ~ 6,
+      i == 3 & l == 4 ~ 7,
       i == 4 & l == 4 ~ 8,
       .default = NA
     ),
@@ -427,7 +425,8 @@ COMBO_stan <- bind_rows(
     prev = prev_num / prev_denom,
     prev_lower = qbeta(0.025, 1 + prev_num, 1 + prev_denom - prev_num),
     prev_upper = qbeta(0.975, 1 + prev_num, 1 + prev_denom - prev_num),
-    it = seasonality) |>
+    it = seasonality,
+    years = time/12) |>
   ######################################################
   ##### not including pyrethroid-pyriproxyfen nets #####
   #######################################################
@@ -518,184 +517,295 @@ if(all(int!=0)){
 ##### creating the unique and study combinations #####
 ######################################################
 
-extract_data_in <- function(COMBO_stan, train_inds){
-
-  u_ij <- unique(COMBO_stan[,c("i", "cluster", "BL_prev_num", "BL_prev_denom", "net_use_num", "net_use_denom")]) |> dplyr::mutate(ij = dplyr::row_number())
-  COMBO_stan <- COMBO_stan |> dplyr::left_join(u_ij)
-
-  # design matrices for dummy coding
-  pmat_i <- fastDummies::dummy_cols(COMBO_stan$i)[,-1]
-  pmat_l <- fastDummies::dummy_cols(COMBO_stan$l)[, -c(1, 2)] # data_1 is the pyrethroid only nets
-  pmat_li <- fastDummies::dummy_cols(COMBO_stan$li)[,-c(1, 2)]
-  pmat_ij <- fastDummies::dummy_cols(COMBO_stan$ij)[,-1]
-  pmat_it <- fastDummies::dummy_cols(COMBO_stan$it)[,-1]
-
-  pmat_i_pooled_gq <- matrix(0, nrow = nrow(pmat_i), ncol = ncol(pmat_i))
-  pmat_li_pooled_gq <- matrix(0, nrow = nrow(pmat_li), ncol = ncol(pmat_li))
-  pmat_it_pooled_gq <- matrix(0, nrow = nrow(pmat_it), ncol = ncol(pmat_it))
-
-  N_ij <- as.integer(nrow(u_ij))
-  N_ij_unq <- length(unique(u_ij$i))
-
-  # calculating the indexing to match up pmat_ij with missing clusters and studies
-  u_ij_train <- unique(COMBO_stan[train_inds, c("i", "cluster", "ij", "BL_prev_num", "BL_prev_denom", "net_use_num", "net_use_denom")]) |>
-    dplyr::mutate(ij_train = dplyr::row_number())
-
-  N_ij_train <- nrow(u_ij_train)
-  N_ij_unq_train <- length(unique(u_ij_train$i))
-
-  ij_unq_train_df <- data.frame(i = sort(unique(u_ij$i))) |> dplyr::mutate(ij_unq_train = i %in% unique(u_ij_train$i))
-
-  x <- 0
-  for(i in 1:nrow(ij_unq_train_df)){
-    if(ij_unq_train_df[i, "ij_unq_train"]){
-      x <- x+1
-      ij_unq_train_df[i, "r_id_ij_unq_train"] <- x
-    } else{
-      ij_unq_train_df[i, "r_id_ij_unq_train"] <- -1 # index position that doesn't exist
-    }
+extract_data_in <- function(data_stan, train_folds){
+  
+  N <- nrow(data_stan)
+  N_i <- length(unique(data_stan$i))
+  
+  u_li <- unique(data_stan[,c("l", "li", "i")]) |> arrange(li)
+  
+  if(anyDuplicated(rle(u_li$l)$values)){
+    stop("Net types in li must be in order")
   }
-
-  ij_unq_train <- ij_unq_train_df$ij_unq_train |> as.integer()
-  r_id_ij_unq <- ij_unq_train_df$r_id_ij_unq_train # index of positions corresponding to fitted sigma
-
+  
+  N_i_pbo <- length(which(u_li$l == 2))
+  N_i_pp <- length(which(u_li$l == 3))
+  
+  N_l <- length(unique(data_stan$l))
+  
+  N_li <- length(unique(data_stan$li))
+  
+  u_ij <- unique(data_stan[,c("i", "cluster", "BL_prev_num", "BL_prev_denom")]) |> 
+    arrange(i, cluster) |>
+    dplyr::mutate(ij = dplyr::row_number())
+  
+  nrow(unique(data_stan[, c("i", "cluster")])) == nrow(u_ij)
+  
+  data_stan <- data_stan |> dplyr::left_join(u_ij)
+  
+  N_ij <- nrow(u_ij)
+  
+  index_i <- data_stan$i
+  index_l <- data_stan$l
+  index_li <- data_stan$li
+  index_ij <- data_stan$ij
+  years <- data_stan$years
+  
+  train_inds <- which(data_stan$fold %in% train_folds)
+  test_inds <- which(!(data_stan$fold %in% train_folds))
+  N_test <- length(test_inds)
+  N_train <- length(train_inds)
+  
+  if((N_test + N_train) != N){
+    stop("(N_test + N_train) != N")
+  }
+  
+  ij_index_i <- u_ij$i
+  
+  # calculating the indexing to match up pmat_ij with missing clusters and studies
+  u_ij_train <- unique(data_stan[train_inds, c("i", "cluster", "ij", "BL_prev_num", "BL_prev_denom")]) |> 
+    arrange(i, cluster) |>
+    dplyr::mutate(ij_train = dplyr::row_number())
+  
+  N_ij_train <- nrow(u_ij_train)
+  
+  ij_train_index_i <- u_ij_train$i
+  
+  N_i_train <- length(unique(u_ij_train$i))
+  
+  if(N_i_train < N_i){
+    stop("N_i must equal N_i_train - studies cannot be excluded in the k-fold cross validation")
+    
+    # i_train_df <- data.frame(i = sort(unique(u_ij$i))) |> dplyr::mutate(i_train_bin = i %in% unique(u_ij_train$i))
+    # 
+    # x <- 0
+    # for(i in 1:nrow(i_train_df)){
+    #   if(i_train_df[i, "i_train_bin"]){
+    #     x <- x+1
+    #     i_train_df[i, "i_index_i_train"] <- x
+    #   } else{
+    #     i_train_df[i, "i_index_i_train"] <- -1 # index position that doesn't exist
+    #   }
+    # }
+    # 
+    # i_train_bin <- i_train_df$i_train_bin |> as.integer()
+    # i_index_i_train <- i_train_df$i_index_i_train # index of positions corresponding to fitted sigma
+    # 
+    
+  }
+  
   #
-  ij_train_df <- data.frame(ij = sort(unique(u_ij$ij))) |> dplyr::mutate(ij_train = ij %in% unique(u_ij_train$ij))
+  ij_train_df <- data.frame(ij = sort(unique(u_ij$ij))) |> dplyr::mutate(ij_train_bin = ij %in% unique(u_ij_train$ij))
+  
   x <- 0
   for(i in 1:nrow(ij_train_df)){
-    if(ij_train_df[i, "ij_train"]){
+    if(ij_train_df[i, "ij_train_bin"]){
       x <- x+1
-      ij_train_df[i, "r_id_ij_train"] <- x
+      ij_train_df[i, "ij_index_ij_train"] <- x
     } else{
-      ij_train_df[i, "r_id_ij_train"] <- -1 # index position that doesn't exist
+      ij_train_df[i, "ij_index_ij_train"] <- -1 # index position that doesn't exist
     }
   }
-
-  ij_train <- ij_train_df$ij_train |> as.integer()
-  r_id_ij <- ij_train_df$r_id_ij_train # index of positions corresponding to fitted cluster random effect
-
-  m_prob_s_gq <- u_ij |> group_by(i) |> summarise(m = sum(BL_prev_num)/sum(BL_prev_denom)) |> select(m) |> unlist() |> as.vector()
-  d_prob_s_gq <- as.vector(as.matrix(pmat_ij) %*% (u_ij$BL_prev_num / u_ij$BL_prev_denom - m_prob_s_gq[u_ij$i]))
-  m_prob_s_gq <- as.vector((as.matrix(pmat_i) %*% m_prob_s_gq))
-
-  N_gq <- nrow(COMBO_stan)
-
-  m_prob_s_gq_pooled <- rep(u_ij |> summarise(m = sum(BL_prev_num)/sum(BL_prev_denom)) |> select(m) |> as.vector() |> unname() |> unlist(), N_gq)
-  d_prob_s_gq_pooled <- rep(0, N_gq)
-
-  m_net_s_gq <- u_ij |> group_by(i) |> summarise(m = sum(net_use_num)/sum(net_use_denom)) |> select(m) |> unlist() |> as.vector()
-  d_net_s_gq <- as.vector(as.matrix(pmat_ij) %*% (u_ij$net_use_num / u_ij$net_use_denom - m_net_s_gq[u_ij$i]))
-  m_net_s_gq <- as.vector((as.matrix(pmat_i) %*% m_net_s_gq))
-
-  m_net_s_gq_pooled <- rep(u_ij |> summarise(m = sum(net_use_num)/sum(net_use_denom)) |> select(m) |> as.vector() |> unname() |> unlist(), N_gq)
-  d_net_s_gq_pooled <- rep(0, N_gq)
-
-  r_id <- u_ij$i
-  N_i <- ncol(pmat_i)
-
-  u_li <- unique(COMBO_stan[,c("l", "li", "i")]) |> arrange(li) |> filter(l!=1)
-  #r_id_li <- u_li$l - 1
-  N_i_pbo <- nrow(subset(u_li, l == 2))
-  N_i_pp <- nrow(subset(u_li, l == 3))
-
-  # check
-  # prob_s_train <- u_ij_train$BL_prev_num / u_ij_train$BL_prev_denom
-  # count_m_prob <- rep(0, N_i)
-  # total_m_prob <- rep(0, N_i)
-  # prob_s <- rep(NA, N_ij)
-  #
-  # for(i in 1:N_ij){
-  #   if(ij_train[i] == 1){
-  #     prob_s[i] = prob_s_train[r_id_ij[i]];
-  #     count_m_prob[r_id[i]] <- count_m_prob[r_id[i]] + 1;
-  #     total_m_prob[r_id[i]] <- total_m_prob[r_id[i]] + prob_s[i];
-  #   } else{
-  #     prob_s[i] = 0;
-  #   }
-  # }
-  #
-  # m_prob_s_i <- rep(NA, N_i)
-  # for(i in 1:N_i){
-  #   if(ij_unq_train[i] == 1){
-  #     m_prob_s_i[i] = total_m_prob[i] / count_m_prob[i];
-  #   } else{
-  #     m_prob_s_i[i] = 1;
-  #   }
-  # }
-  #
-  # d_prob_s_ij <- rep(NA, N_ij)
-  # for(i in 1:N_ij){
-  #   d_prob_s_ij[i] = prob_s[i] - m_prob_s_i[r_id[i]];
-  # }
-  #
-  # d_prob_s = as.matrix(pmat_ij) %*% d_prob_s_ij;
-  # m_prob_s = as.matrix(pmat_i) %*% m_prob_s_i;
-
-  data_in <- list("N" = nrow(COMBO_stan),
-                  "N_i" = N_i,
-                  "N_l" = ncol(pmat_l),
-                  "N_li" = ncol(pmat_li),
-                  "N_ij" = N_ij,
-                  "N_it" = ncol(pmat_it),
-                  "pmat_i" = pmat_i,
-                  "pmat_l" = pmat_l,
-                  "pmat_li" = pmat_li,
-                  "pmat_ij" = pmat_ij,
-                  "pmat_it" = pmat_it,
-                  #"r_id_li" = r_id_li,
-                  "N_i_pbo" = N_i_pbo,
-                  "N_i_pp" = N_i_pp,
-                  "r_id" = r_id,
-                  "N_ij_unq" = N_ij_unq, # cluster specific random effect for each study
-                  "ij_train" = ij_train,
-                  "r_id_ij" = r_id_ij,
-                  "ij_unq_train" = ij_unq_train,
-                  "r_id_ij_unq" = r_id_ij_unq,
-                  "N_ij_train" = N_ij_train,
-                  "N_ij_unq_train" = N_ij_unq_train,
-                  "time" = COMBO_stan$time / 12,
-                  "years" = COMBO_stan$time / 12,
-                  "pos" = as.integer(COMBO_stan$prev_num),
-                  "test" = as.integer(COMBO_stan$prev_denom),
-                  "pos_s" = as.integer(u_ij$BL_prev_num),
-                  "test_s" = as.integer(u_ij$BL_prev_denom),
-                  "base_net_pos" = as.integer(u_ij$net_use_num),
-                  "base_net_test" = as.integer(u_ij$net_use_denom),
-                  "prior_sd" = 2.0,
-                  "prior_sd_t" = 2.0,
-                  "N_train" = length(train_inds),
-                  "train_inds" = train_inds,
-                  "N_gq" = N_gq,
-                  "N_ij_gq" = N_ij,
-                  "N_ij_unq_gq" = N_ij_unq,
-                  "pmat_ij_gq" = pmat_ij,
-                  "pmat_i_gq" = pmat_i,
-                  "pmat_l_gq" = pmat_l,
-                  "pmat_li_gq" = pmat_li,
-                  "pmat_it_gq" = pmat_it,
-                  "pmat_i_pooled_gq" = pmat_i_pooled_gq,
-                  "pmat_li_pooled_gq" = pmat_li_pooled_gq,
-                  "pmat_it_pooled_gq" = pmat_it_pooled_gq,
-                  "r_id_gq" = u_ij$i,
-                  "ij_unq_train_gq" = ij_unq_train,
-                  "ij_train_gq" = ij_train,
-                  "m_prob_s_gq" = m_prob_s_gq,
-                  "d_prob_s_gq" = d_prob_s_gq,
-                  "years_gq" = COMBO_stan$time / 12,
-                  "gq" = 0,
-                  "m_net_s_gq" = m_net_s_gq,
-                  "d_net_s_gq" = d_net_s_gq,
-                  "m_net_s_gq_pooled" = m_net_s_gq_pooled,
-                  "d_net_s_gq_pooled" = d_net_s_gq_pooled,
-                  "m_prob_s_gq_pooled" = m_prob_s_gq_pooled,
-                  "d_prob_s_gq_pooled" = d_prob_s_gq_pooled
-                  )
+  
+  ij_train_bin <- ij_train_df$ij_train_bin |> as.integer()
+  ij_index_ij_train <- ij_train_df$ij_index_ij_train # index of positions corresponding to fitted cluster random effect
+  
+  pos <- data_stan$prev_num
+  test <- data_stan$prev_denom
+  
+  pos_base_prev <- u_ij$BL_prev_num
+  test_base_prev <- u_ij$BL_prev_denom
+  
+  prior_sd <- 2.5
+  
+  study_mean_base_prev <- data_stan |> summarise(m = mean(BL_prev), .by = i) |> arrange(i) |> select(m) |> unlist() |> as.vector() |> round(digits = 1)
+  
+  data_in <- list("N" = N, "N_i" = N_i, "N_i_pbo" = N_i_pbo, "N_i_pp" = N_i_pp, "N_l" = N_l, "N_li" = N_li, "N_ij" = N_ij,
+                  "index_i" = index_i, "index_l" = index_l, "index_li" = index_li, "index_ij" = index_ij,
+                  "years" = years, "N_train" = N_train, "train_inds" = train_inds, "N_test" = N_test, "test_inds" = test_inds,
+                  "ij_index_i" = ij_index_i, "ij_index_ij_train" = ij_index_ij_train, "ij_train_bin" = ij_train_bin, "N_ij_train" = N_ij_train,
+                  # "i_train_bin" = i_train_bin, "i_index_i_train" = i_index_i_train, "N_i_train" = N_i_train,
+                  "pos" = pos, "test" = test, "pos_base_prev" = pos_base_prev, "test_base_prev" = test_base_prev,
+                  "prior_sd" = prior_sd, "study_mean_base_prev" = study_mean_base_prev, "ij_train_index_i" = ij_train_index_i)
   return(data_in)
 }
 
-data_in_full <- extract_data_in(COMBO_stan, train_inds = seq(1, nrow(COMBO_stan)))
+# extract_data_in <- function(COMBO_stan, train_inds){
+# 
+#   u_ij <- unique(COMBO_stan[,c("i", "cluster", "BL_prev_num", "BL_prev_denom", "net_use_num", "net_use_denom")]) |> dplyr::mutate(ij = dplyr::row_number())
+#   COMBO_stan <- COMBO_stan |> dplyr::left_join(u_ij)
+# 
+#   # design matrices for dummy coding
+#   pmat_i <- fastDummies::dummy_cols(COMBO_stan$i)[,-1]
+#   pmat_l <- fastDummies::dummy_cols(COMBO_stan$l)[, -c(1, 2)] # data_1 is the pyrethroid only nets
+#   pmat_li <- fastDummies::dummy_cols(COMBO_stan$li)[,-c(1, 2)]
+#   pmat_ij <- fastDummies::dummy_cols(COMBO_stan$ij)[,-1]
+#   pmat_it <- fastDummies::dummy_cols(COMBO_stan$it)[,-1]
+# 
+#   pmat_i_pooled_gq <- matrix(0, nrow = nrow(pmat_i), ncol = ncol(pmat_i))
+#   pmat_li_pooled_gq <- matrix(0, nrow = nrow(pmat_li), ncol = ncol(pmat_li))
+#   pmat_it_pooled_gq <- matrix(0, nrow = nrow(pmat_it), ncol = ncol(pmat_it))
+# 
+#   N_ij <- as.integer(nrow(u_ij))
+#   N_ij_unq <- length(unique(u_ij$i))
+# 
+#   # calculating the indexing to match up pmat_ij with missing clusters and studies
+#   u_ij_train <- unique(COMBO_stan[train_inds, c("i", "cluster", "ij", "BL_prev_num", "BL_prev_denom", "net_use_num", "net_use_denom")]) |>
+#     dplyr::mutate(ij_train = dplyr::row_number())
+# 
+#   N_ij_train <- nrow(u_ij_train)
+#   N_ij_unq_train <- length(unique(u_ij_train$i))
+# 
+#   ij_unq_train_df <- data.frame(i = sort(unique(u_ij$i))) |> dplyr::mutate(ij_unq_train = i %in% unique(u_ij_train$i))
+# 
+#   x <- 0
+#   for(i in 1:nrow(ij_unq_train_df)){
+#     if(ij_unq_train_df[i, "ij_unq_train"]){
+#       x <- x+1
+#       ij_unq_train_df[i, "r_id_ij_unq_train"] <- x
+#     } else{
+#       ij_unq_train_df[i, "r_id_ij_unq_train"] <- -1 # index position that doesn't exist
+#     }
+#   }
+# 
+#   ij_unq_train <- ij_unq_train_df$ij_unq_train |> as.integer()
+#   r_id_ij_unq <- ij_unq_train_df$r_id_ij_unq_train # index of positions corresponding to fitted sigma
+# 
+#   #
+#   ij_train_df <- data.frame(ij = sort(unique(u_ij$ij))) |> dplyr::mutate(ij_train = ij %in% unique(u_ij_train$ij))
+#   x <- 0
+#   for(i in 1:nrow(ij_train_df)){
+#     if(ij_train_df[i, "ij_train"]){
+#       x <- x+1
+#       ij_train_df[i, "r_id_ij_train"] <- x
+#     } else{
+#       ij_train_df[i, "r_id_ij_train"] <- -1 # index position that doesn't exist
+#     }
+#   }
+# 
+#   ij_train <- ij_train_df$ij_train |> as.integer()
+#   r_id_ij <- ij_train_df$r_id_ij_train # index of positions corresponding to fitted cluster random effect
+# 
+#   m_prob_s_gq <- u_ij |> group_by(i) |> summarise(m = sum(BL_prev_num)/sum(BL_prev_denom)) |> select(m) |> unlist() |> as.vector()
+#   d_prob_s_gq <- as.vector(as.matrix(pmat_ij) %*% (u_ij$BL_prev_num / u_ij$BL_prev_denom - m_prob_s_gq[u_ij$i]))
+#   m_prob_s_gq <- as.vector((as.matrix(pmat_i) %*% m_prob_s_gq))
+# 
+#   N_gq <- nrow(COMBO_stan)
+# 
+#   m_prob_s_gq_pooled <- rep(u_ij |> summarise(m = sum(BL_prev_num)/sum(BL_prev_denom)) |> select(m) |> as.vector() |> unname() |> unlist(), N_gq)
+#   d_prob_s_gq_pooled <- rep(0, N_gq)
+# 
+#   m_net_s_gq <- u_ij |> group_by(i) |> summarise(m = sum(net_use_num)/sum(net_use_denom)) |> select(m) |> unlist() |> as.vector()
+#   d_net_s_gq <- as.vector(as.matrix(pmat_ij) %*% (u_ij$net_use_num / u_ij$net_use_denom - m_net_s_gq[u_ij$i]))
+#   m_net_s_gq <- as.vector((as.matrix(pmat_i) %*% m_net_s_gq))
+# 
+#   m_net_s_gq_pooled <- rep(u_ij |> summarise(m = sum(net_use_num)/sum(net_use_denom)) |> select(m) |> as.vector() |> unname() |> unlist(), N_gq)
+#   d_net_s_gq_pooled <- rep(0, N_gq)
+# 
+#   r_id <- u_ij$i
+#   N_i <- ncol(pmat_i)
+# 
+#   u_li <- unique(COMBO_stan[,c("l", "li", "i")]) |> arrange(li) |> filter(l!=1)
+#   #r_id_li <- u_li$l - 1
+#   N_i_pbo <- nrow(subset(u_li, l == 2))
+#   N_i_pp <- nrow(subset(u_li, l == 3))
+# 
+#   # check
+#   # prob_s_train <- u_ij_train$BL_prev_num / u_ij_train$BL_prev_denom
+#   # count_m_prob <- rep(0, N_i)
+#   # total_m_prob <- rep(0, N_i)
+#   # prob_s <- rep(NA, N_ij)
+#   #
+#   # for(i in 1:N_ij){
+#   #   if(ij_train[i] == 1){
+#   #     prob_s[i] = prob_s_train[r_id_ij[i]];
+#   #     count_m_prob[r_id[i]] <- count_m_prob[r_id[i]] + 1;
+#   #     total_m_prob[r_id[i]] <- total_m_prob[r_id[i]] + prob_s[i];
+#   #   } else{
+#   #     prob_s[i] = 0;
+#   #   }
+#   # }
+#   #
+#   # m_prob_s_i <- rep(NA, N_i)
+#   # for(i in 1:N_i){
+#   #   if(ij_unq_train[i] == 1){
+#   #     m_prob_s_i[i] = total_m_prob[i] / count_m_prob[i];
+#   #   } else{
+#   #     m_prob_s_i[i] = 1;
+#   #   }
+#   # }
+#   #
+#   # d_prob_s_ij <- rep(NA, N_ij)
+#   # for(i in 1:N_ij){
+#   #   d_prob_s_ij[i] = prob_s[i] - m_prob_s_i[r_id[i]];
+#   # }
+#   #
+#   # d_prob_s = as.matrix(pmat_ij) %*% d_prob_s_ij;
+#   # m_prob_s = as.matrix(pmat_i) %*% m_prob_s_i;
+# 
+#   data_in <- list("N" = nrow(COMBO_stan),
+#                   "N_i" = N_i,
+#                   "N_l" = ncol(pmat_l),
+#                   "N_li" = ncol(pmat_li),
+#                   "N_ij" = N_ij,
+#                   "N_it" = ncol(pmat_it),
+#                   "pmat_i" = pmat_i,
+#                   "pmat_l" = pmat_l,
+#                   "pmat_li" = pmat_li,
+#                   "pmat_ij" = pmat_ij,
+#                   "pmat_it" = pmat_it,
+#                   #"r_id_li" = r_id_li,
+#                   "N_i_pbo" = N_i_pbo,
+#                   "N_i_pp" = N_i_pp,
+#                   "r_id" = r_id,
+#                   "N_ij_unq" = N_ij_unq, # cluster specific random effect for each study
+#                   "ij_train" = ij_train,
+#                   "r_id_ij" = r_id_ij,
+#                   "ij_unq_train" = ij_unq_train,
+#                   "r_id_ij_unq" = r_id_ij_unq,
+#                   "N_ij_train" = N_ij_train,
+#                   "N_ij_unq_train" = N_ij_unq_train,
+#                   "time" = COMBO_stan$time / 12,
+#                   "years" = COMBO_stan$time / 12,
+#                   "pos" = as.integer(COMBO_stan$prev_num),
+#                   "test" = as.integer(COMBO_stan$prev_denom),
+#                   "pos_s" = as.integer(u_ij$BL_prev_num),
+#                   "test_s" = as.integer(u_ij$BL_prev_denom),
+#                   "base_net_pos" = as.integer(u_ij$net_use_num),
+#                   "base_net_test" = as.integer(u_ij$net_use_denom),
+#                   "prior_sd" = 2.0,
+#                   "prior_sd_t" = 2.0,
+#                   "N_train" = length(train_inds),
+#                   "train_inds" = train_inds,
+#                   "N_gq" = N_gq,
+#                   "N_ij_gq" = N_ij,
+#                   "N_ij_unq_gq" = N_ij_unq,
+#                   "pmat_ij_gq" = pmat_ij,
+#                   "pmat_i_gq" = pmat_i,
+#                   "pmat_l_gq" = pmat_l,
+#                   "pmat_li_gq" = pmat_li,
+#                   "pmat_it_gq" = pmat_it,
+#                   "pmat_i_pooled_gq" = pmat_i_pooled_gq,
+#                   "pmat_li_pooled_gq" = pmat_li_pooled_gq,
+#                   "pmat_it_pooled_gq" = pmat_it_pooled_gq,
+#                   "r_id_gq" = u_ij$i,
+#                   "ij_unq_train_gq" = ij_unq_train,
+#                   "ij_train_gq" = ij_train,
+#                   "m_prob_s_gq" = m_prob_s_gq,
+#                   "d_prob_s_gq" = d_prob_s_gq,
+#                   "years_gq" = COMBO_stan$time / 12,
+#                   "gq" = 0,
+#                   "m_net_s_gq" = m_net_s_gq,
+#                   "d_net_s_gq" = d_net_s_gq,
+#                   "m_net_s_gq_pooled" = m_net_s_gq_pooled,
+#                   "d_net_s_gq_pooled" = d_net_s_gq_pooled,
+#                   "m_prob_s_gq_pooled" = m_prob_s_gq_pooled,
+#                   "d_prob_s_gq_pooled" = d_prob_s_gq_pooled
+#                   )
+#   return(data_in)
+# }
 
-iter <- 8000
+iter <- 3000
 warmup <- floor(iter/2)
 
 lower <- 0.025
@@ -718,6 +828,8 @@ COMBO_stan <- COMBO_stan |> dplyr::mutate(
   trial_net_use_upper = qbeta(0.975, 1 + tr_net_use_num, 1 + tr_net_use_denom - tr_net_use_num),
   fold = loo::kfold_split_stratified(x = paste0(COMBO_stan[,"l"], "_", COMBO_stan[,"i"]), K = K_folds)
 )
+
+data_in_full <- extract_data_in(COMBO_stan, train_fold = 1:K_folds)
 
 saveRDS(list("iter" = iter,
              "warmup" = warmup,

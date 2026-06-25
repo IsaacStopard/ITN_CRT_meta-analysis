@@ -82,7 +82,7 @@ lower_plots_custom <- function(data,
 
   ggplot(...) +
     geom_pointrange(data = data, mapping = mapping, alpha = 0.5, size = 0.25, linewidth = 0.1) +
-    geom_errorbarh(data = data, mapping = mapping_eb, linewidth = 0.1, alpha = 0.5) +
+    geom_errorbar(data = data, mapping = mapping_eb, linewidth = 0.1, alpha = 0.5, orientation = "y") +
     scale_y_continuous(labels=scales::percent, limits = c(0, 1), breaks = seq(0, 1, 0.25)) +
     scale_x_continuous(labels=scales::percent, limits = c(0, 1), breaks = seq(0, 1, 0.25)) +
     pairs_theme +
