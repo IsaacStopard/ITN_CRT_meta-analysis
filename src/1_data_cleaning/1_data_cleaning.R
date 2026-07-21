@@ -78,6 +78,14 @@ PROTO <-  left_join(prev, prev_BL) |>
 
 # checks
 # tests to check clusters are all included
+# checking the values align
+sum(PROTO$prev_num)
+sum(PROTO$prev_denom)
+check <- unique(PROTO[,c("cluster", "BL_prev_num", "BL_prev_denom")])
+sum(check$BL_prev_num)
+sum(check$BL_prev_denom)
+
+PROTO |> summarise(pos = sum(prev_num), tot = sum(prev_denom), .by = c("time", "Arm"))
 
 u_cl <- unique(p_master[, c("Trial_ID", "Trial_no", "Cluster_ID", "cluster", "Arm")]) |> filter(!str_detect(Arm, "IRS")) |> select(cluster) |> unlist() |> as.vector()
 
@@ -180,6 +188,8 @@ MOSHA <- left_join(prev |> select(-Pf_prev),
 # checks
 # tests to check clusters are all included
 
+sum(subset(MOSHA, Arm == "Std_llin")$prev_denom)
+
 u_cl <- unique(m_master[, c("cluster", "Arm")]) |> select(cluster) |> unlist() |> as.vector()
 
 if(!(MOSHA |> group_by(time) |> summarise(c = all(cluster %in% u_cl)) |> select(c) |> all())){
@@ -190,7 +200,9 @@ if(!(MOSHA |> group_by(time) |> summarise(c = all(u_cl %in% cluster)) |> select(
   warning("clusters are missing in MOSHA")
 }
 
-rm(list = c("prev", "prev_BL", "bl_net", "tr_net", "u_cl", "m_master"))
+MOSHA |> filter(Arm != "PPF_Py" & time == 30) |>  summarise(pos = sum(prev_num), tot = sum(prev_denom), .by = c("Arm", "time")) |> arrange(Arm, time)
+
+rm(list = c("prev", "prev_BL", "bl_net", "tr_net", "u_cl", "m_master")) 
 
 ###################
 ##### STAEDKE #####
@@ -289,6 +301,8 @@ STAEDKE <- left_join(prev, prev_BL |> select(-Pf_prev)) |>
   mutate(Trial_no = 14) |>
   left_join(s_master |> select(Trial_no, cluster, Arm) |> distinct())
 
+STAEDKE |> summarise(prev_num = sum(prev_num), prev_denom = sum(prev_denom), .by = c("Arm", "time"))
+
 # checks
 if(!(STAEDKE |> group_by(time) |> summarise(c = all(cluster %in% u_cl)) |> select(c) |> all())){
   warning("not all clusters identified in STAEDKE")
@@ -313,13 +327,15 @@ STAEDKE |> group_by(time) |> summarise(n = sum(is.na(prev_num))) |> filter(n > 0
 
 STAEDKE <- STAEDKE |> filter(!is.na(prev_num))
 
+STAEDKE |> summarise(pos = sum(prev_num), tot = sum(prev_denom), .by = c("Arm", "time"))
+
 rm(list = c("bl_net", "tr_net_use", "tr_net_tested", "tr_net", "prev_25m", "prev", "prev_BL"))
 
 #################
 ##### BENIN #####
 #################
 
-Benin <- import("Benin_cluster_prev_nets.xlsx") |> rename(Arm = arm)
+Benin <- import("Benin_cluster_prev_nets.xlsx")
 
 # missing numbers of people asked about use of nets at baseline
 # values obtained from Table 1
@@ -327,21 +343,23 @@ Benin <- import("Benin_cluster_prev_nets.xlsx") |> rename(Arm = arm)
 
 bl_net <- Benin |>
   filter(survey == "1.XS Baseline") |>
-  group_by(Arm) |>
+  group_by(arm) |>
   mutate(n = n(),
-         useanynet_n = case_when(Arm == "Control" ~ round(1392/n, digits = 0),
-                                 Arm == "CFP net" ~ round(1326/n, digits = 0),
-                                 Arm == "PPF net" ~ round(1370/n, digits = 0)
+         useanynet_n = case_when(arm == "Control" ~ round(1392/n, digits = 0),
+                                 arm == "CFP net" ~ round(1326/n, digits = 0),
+                                 arm == "PPF net" ~ round(1370/n, digits = 0)
          )
   ) |>
-  mutate(cluster = cluster,
+  mutate(arm = arm,
+         cluster = cluster,
          net_use_num = round(useanynet*useanynet_n,0),
          net_use_denom = useanynet_n,
          .keep = "none")
 
 tr_net <- Benin |>
   filter(survey != "1.XS Baseline") |>
-  mutate(cluster = cluster,
+  mutate(arm = arm,
+         cluster = cluster,
          tr_net_use_num = useanynet_n,
          tr_net_use_denom = use,
          time = case_when(
@@ -352,7 +370,8 @@ tr_net <- Benin |>
 
 prev <- Benin |>
   filter(survey != "1.XS Baseline") |>
-  mutate(cluster = cluster,
+  mutate(arm = arm,
+         cluster = cluster,
          prev_num = pos,
          prev_denom = notested,
          time = case_when(
@@ -367,13 +386,14 @@ prev <- Benin |>
 
 prev_BL <- Benin |>
   filter(survey == "1.XS Baseline") |>
-  select(cluster, BL_prev_num = pos, BL_prev_denom = notested)
+  select(cluster, BL_prev_num = pos, BL_prev_denom = notested, arm)
 
 ACCROMBESSI <- left_join(prev, prev_BL) |>
   left_join(bl_net) |>
   left_join(tr_net) |>
-  mutate(Trial_no = 11) |>
-  left_join(master |> select(Trial_no, cluster, Arm) |> distinct())
+  mutate(Trial_no = 11)
+
+ACCROMBESSI |> summarise(num = sum(prev_num), denom = sum(prev_denom), .by = c("arm", "time"))
 
 rm(list = c("prev_BL", "prev", "bl_net", "tr_net"))
 
